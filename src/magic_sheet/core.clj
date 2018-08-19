@@ -3,17 +3,28 @@
             [clojure.core.async :as async]
             [magic-sheet.utils :refer [run-later run-now event-handler]])
   (:import [javafx.scene SceneBuilder]
-           [javafx.scene.control Button TableView TableColumn]
+           [javafx.scene.control Button
+                                 TableView
+                                 TableColumn
+                                 ContextMenu
+                                 MenuItem
+                                 Dialog
+                                 ButtonType
+                                 Label
+                                 TextArea
+                                 TextField
+                                 ComboBox]
            [javafx.scene.text Text]
-           [javafx.scene.layout BorderPane Pane VBox HBox]
-           [javafx.stage StageBuilder]
+           [javafx.scene.layout BorderPane Pane VBox HBox GridPane]
+           [javafx.stage StageBuilder Modality]
            [javafx.scene Node Cursor]
            [javafx.collections FXCollections]
            [javafx.util Callback]
            [javafx.beans.value ObservableValue]
            [javafx.beans.property ReadOnlyObjectWrapper]
            [java.util UUID]
-           [utils DragResizeMod])
+           [utils DragResizeMod]
+           [javafx.geometry Insets])
   (:gen-class))
 
 (defonce force-toolkit-init (javafx.embed.swing.JFXPanel.))
@@ -30,6 +41,17 @@
 
 (def repl-connection (repl/connect :port 40338))
 (def repl-client (repl/client repl-connection 5000))
+
+(defn make-context-menu [items]
+  (let [cm (ContextMenu.)
+        cm-items (->> items
+                      (map (fn [{:keys [text on-click]}]
+                             (doto (MenuItem. text)
+                               (.setOnAction (event-handler [_] (on-click)))))))]
+    (-> cm
+        .getItems
+        (.addAll (into-array MenuItem cm-items)))
+    cm))
 
 (defn make-table-ui [data]
   (assert (seq? data) (str "Data is not a sequence " (type data)))
@@ -142,9 +164,62 @@
         .getChildren
         (.add node))))
 
-(defn update-result-node []
-  )
+(def menu (make-context-menu [{:text "New command" :on-click #(println "One")}
+                              {:text "New command for result" :on-click #(println "Two")}
+                              {:text "Save sheet" :on-click #(println "Three")}
+                              {:text "Quit" :on-click #(println "Three")}]))
 
+
+(doto main-pane
+  (.setOnContextMenuRequested (event-handler
+                               [ev]
+                               (.show menu
+                                      main-pane
+                                      (.getScreenX ev)
+                                      (.getScreenY ev)))))
+
+(defn make-new-command-dialog []
+  (let [d (doto (Dialog.)
+            (.setTitle "New command")
+            (.initModality Modality/APPLICATION_MODAL)
+            (.setResizable false)
+            (.setWidth 620)
+            (.setHeight 285))
+        
+        title-input (TextField.)
+        code-txta (TextArea.)
+        type-combo (ComboBox.)
+        grid-pane (doto (GridPane.)
+                    (.setHgap 10)
+                    (.setVgap 10)
+                    #_(.setPadding (Insets. 20 20 10 10))
+                    (.add (Label. "Title:")      0 0)
+                    (.add title-input            1 0)
+                    (.add (Label. "Code:")       0 1)
+                    (.add code-txta              1 1)
+                    (.add (Label. "Result as:")  0 2)
+                    (.add type-combo             1 2))
+        result-type-options {"Result as table" :as-table
+                             "Result as value" :as-value
+                             "Resutl as tree"  :as-tree}]
+    (-> type-combo
+        .getItems
+        (.addAll (into-array String (keys result-type-options))))
+    (-> d
+        .getDialogPane
+        .getButtonTypes
+        (.addAll (into-array Object [ButtonType/OK ButtonType/CANCEL])))
+    (-> d
+        .getDialogPane
+        (.setContent grid-pane))
+
+    (.setResultConverter d (reify Callback
+                             (call [this button]
+                               (when (= "OK" (.getText button))
+                                 {:title       (.getText title-input)
+                                  :code        (.getText code-txta)
+                                  :result-type (result-type-options (.getValue type-combo))}))))
+    d))
 #_
 (comment
 
@@ -157,7 +232,8 @@
                               :code "(user/increment-atom)"}))
   
   (run-now (-> stage .build .show))
-  
+
+  (run-now (-> (make-new-command-dialog) .showAndWait println))
  
   (doall 
    (pmap (fn [_]
