@@ -1,19 +1,20 @@
 (ns magic-sheet.core
   (:require [nrepl.core :as repl]
             [clojure.core.async :as async]
-            [magic-sheet.utils :refer [run-later run-now event-handler]])
+            [magic-sheet.utils :refer [run-later run-now event-handler]]
+            [clojure.string :as str])
   (:import [javafx.scene SceneBuilder]
            [javafx.scene.control Button
-                                 TableView
-                                 TableColumn
-                                 ContextMenu
-                                 MenuItem
-                                 Dialog
-                                 ButtonType
-                                 Label
-                                 TextArea
-                                 TextField
-                                 ComboBox]
+            TableView
+            TableColumn
+            ContextMenu
+            MenuItem
+            Dialog
+            ButtonType
+            Label
+            TextArea
+            TextField
+            ComboBox]
            [javafx.scene.text Text]
            [javafx.scene.layout BorderPane Pane VBox HBox GridPane]
            [javafx.stage StageBuilder Modality]
@@ -27,20 +28,14 @@
            [javafx.geometry Insets])
   (:gen-class))
 
-(defonce force-toolkit-init (javafx.embed.swing.JFXPanel.))
+(def main-pane nil)
+(def menu nil)
+(def stage nil)
+(def repl-connection nil)
+(def repl-client nil)
+(def nodes (atom {}))
 
-(def main-pane (Pane.))
-
-(def stage (-> (StageBuilder/create)
-               (.title "Main")
-               (.scene (-> (SceneBuilder/create)
-                           (.height 500)
-                           (.width 500)
-                           (.root main-pane)
-                           (.build)))))
-
-(def repl-connection (repl/connect :port 40338))
-(def repl-client (repl/client repl-connection 5000))
+(def repl-command-timeout 5000) ;; timeout in  millis
 
 (defn make-context-menu [items]
   (let [cm (ContextMenu.)
@@ -112,9 +107,6 @@
       .getChildren
       (.remove n)))
 
-
-(def nodes (atom {}))
-
 (defn eval-on-repl [code]
   (->> (repl/message repl-client {:op :eval :code code})
        (filter :value)
@@ -146,7 +138,6 @@
         (.add node))))
 
 (defn add-command-node [{:keys [title code] :as args}]
-  (prn "Adding for " args)
   (let [update-fn (fn []
                     (binding [*default-data-reader-fn* str]
                       (when-let [v (eval-on-repl code)]
@@ -211,26 +202,62 @@
                                    ask-for-result? (assoc :result-type (result-type-options (.getValue type-combo))))))))
     d))
 
+(defn -main
+  ""
+  [& args]
+  (let [[repl-host repl-port] (some-> args
+                                      first
+                                      (str/split #":"))]
 
-(def menu (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog false)
-                                                                  .showAndWait
-                                                                  .get 
-                                                                  add-command-node)}
-                              {:text "New command for result" :on-click #(-> (make-new-command-dialog true)
-                                                                             .showAndWait
-                                                                             .get
-                                                                             add-result-node)}
-                              {:text "Save sheet" :on-click #(println "Saving all!")}
-                              {:text "Quit" :on-click #(println "Bye bye")}]))
+    (when (or (empty? repl-port)
+              (empty? repl-host))
+      (println "\nUsage: \n\t java -jar magic-sheet.jar localhost:7777\n")
+      (System/exit 1))
+    
+    ;; Make repl connection and client
+    (try
+      (alter-var-root #'repl-connection (constantly (repl/connect :host repl-host :port (Integer/parseInt repl-port))))
+      (alter-var-root #'repl-client (constantly (repl/client repl-connection repl-command-timeout)))
+      (catch java.net.ConnectException ce
+        (println (format "\nConnection refused. Are you sure there is a nrepl server running at %s:%s ?\n" repl-host repl-port))
+        (System/exit 1)))
+    
+    ;; Initialize the JavaFX toolkit
+    (javafx.embed.swing.JFXPanel.)
+    
+    (alter-var-root #'menu
+                    (constantly (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog false)
+                                                                                        .showAndWait
+                                                                                        .get 
+                                                                                        add-command-node)}
+                                                    {:text "New command for result" :on-click #(-> (make-new-command-dialog true)
+                                                                                                   .showAndWait
+                                                                                                   .get
+                                                                                                   add-result-node)}
+                                                    {:text "Save sheet" :on-click #(println "Saving all!")}
+                                                    {:text "Quit" :on-click #(do
+                                                                               (println "Bye bye")
+                                                                               (System/exit 0))}])))
+    
+    (alter-var-root #'main-pane (constantly (Pane.)))
+    
+    (alter-var-root #'stage (constantly (-> (StageBuilder/create)
+                                            (.title "Main")
+                                            (.scene (-> (SceneBuilder/create)
+                                                        (.height 500)
+                                                        (.width 500)
+                                                        (.root main-pane)
+                                                        (.build))))))
+    (run-now
+     (.setOnContextMenuRequested main-pane
+                                 (event-handler
+                                  [ev]
+                                  (.show menu
+                                         main-pane
+                                         (.getScreenX ev)
+                                         (.getScreenY ev))))
+     (-> stage .build .show))))
 
-
-(doto main-pane
-  (.setOnContextMenuRequested (event-handler
-                               [ev]
-                               (.show menu
-                                      main-pane
-                                      (.getScreenX ev)
-                                      (.getScreenY ev)))))
 #_
 (comment
 
@@ -257,8 +284,4 @@
          (range 5)))
  )
 
-(defn -main
-  ""
-  [& args]
-  
-  )
+
