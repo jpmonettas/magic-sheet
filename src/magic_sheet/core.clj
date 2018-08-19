@@ -1,33 +1,23 @@
 (ns magic-sheet.core
-  (:require [nrepl.core :as repl]
-            [clojure.core.async :as async]
-            [magic-sheet.utils :refer [run-later run-now event-handler]]
+  (:gen-class)
+  (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [clojure.pprint :as pprint])
-  (:import [javafx.scene SceneBuilder]
-           [javafx.scene.control Button
-            TableView
-            TableColumn
-            ContextMenu
-            MenuItem
-            Dialog
-            ButtonType
-            Label
-            TextArea
-            TextField
-            ComboBox]
-           [javafx.scene.text Text]
-           [javafx.scene.layout BorderPane Pane VBox HBox GridPane]
-           [javafx.stage StageBuilder Modality]
-           [javafx.scene Node Cursor]
-           [javafx.collections FXCollections]
-           [javafx.util Callback]
-           [javafx.beans.value ObservableValue]
-           [javafx.beans.property ReadOnlyObjectWrapper]
-           [java.util UUID]
-           [utils DragResizeMod]
-           [javafx.geometry Insets])
-  (:gen-class))
+            [magic-sheet.utils :refer [event-handler run-now]]
+            [nrepl.core :as repl]
+            [clojure.core.async :as async])
+  (:import java.util.UUID
+           [javafx.animation Animation KeyFrame KeyValue Timeline]
+           javafx.beans.property.ReadOnlyObjectWrapper
+           javafx.collections.FXCollections
+           [javafx.scene Node SceneBuilder]
+           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableColumn TableView TextArea TextField]
+           javafx.scene.effect.DropShadow
+           [javafx.scene.layout BorderPane GridPane HBox Pane VBox]
+           javafx.scene.paint.Color
+           javafx.scene.text.Text
+           [javafx.stage Modality StageBuilder]
+           [javafx.util Callback Duration] 
+           utils.DragResizeMod))
 
 (def main-pane nil)
 (def menu nil)
@@ -80,20 +70,15 @@
     
     main-box))
 
-(defn make-node-ui [{:keys [title on-close sub-bar child]}]
+(defn make-node-ui [{:keys [title on-close]}]
   (let [title-txt (Text. title)
-        
         close-btn (Button. "X")
-        bar (doto (HBox. (into-array Node (cond-> []
-                                            title (conj title-txt)
-                                            sub-bar   (conj sub-bar)
-                                            true  (conj close-btn))))
-              (.setStyle "-fx-background-color: orange;"))
-        bar2 (doto (BorderPane.)
-               (.setLeft title-txt)
-               (.setCenter sub-bar)
-               (.setRight close-btn))
-        main-box (doto (VBox. (into-array Node [bar2 child]))
+        sub-bar (HBox.)
+        bar (doto (BorderPane.)
+              (.setLeft title-txt)
+              (.setCenter sub-bar)
+              (.setRight close-btn))
+        main-box (doto (VBox. (into-array Node [bar]))
                    (.setStyle "-fx-background-color: red; -fx-padding: 10;"))]
 
     (doto close-btn
@@ -101,7 +86,8 @@
 
     (DragResizeMod/makeResizable main-box)
     
-    main-box))
+    {:node main-box
+     :sub-bar-pane sub-bar}))
 
 (defn remove-node [n]
   (-> main-pane
@@ -117,9 +103,11 @@
   (let [{:keys [result-node data-model]} (make-table-ui ret-val)]
     {:result-node result-node
      :result-ui-bar (make-result-ui-bar {:on-update (fn []
-                                                      (doto data-model
-                                                        (.clear)
-                                                        (.addAll (into-array Object (update-fn)))))})}))
+                                                      (update-fn
+                                                       (fn [v]
+                                                         (doto data-model
+                                                           (.clear)
+                                                           (.addAll (into-array Object v))))))})}))
 
 (defn make-text-result-node [ret-val update-fn]
   (let [ta (doto (TextArea.)
@@ -131,45 +119,83 @@
     (format-and-set ret-val)
     {:result-node ta
      :result-ui-bar (make-result-ui-bar {:on-update (fn []
-                                                      (format-and-set (update-fn)))})}))
+                                                      (update-fn format-and-set))})}))
 
 (defn make-tree-result-node [ret-val update-fn]
-  {:result-node (Text. "Sowing result as tree not implemented yet")})
+  {:result-node (Text. "Sowing result as tree not implemented yet for val ")})
+
+(defn make-executing-animation [node]
+  (let [animation-min 1000
+        animation-started (atom nil)
+        shadow (doto (DropShadow.)
+                 (.setColor (Color/BLUE))
+                 (.setSpread 0.75))
+        executing-anim (doto (Timeline. (into-array KeyFrame
+                                                    [(KeyFrame. Duration/ZERO (into-array KeyValue [(KeyValue. (.radiusProperty shadow)  0)]))
+                                                     (KeyFrame. (Duration/seconds 0.5) (into-array KeyValue [(KeyValue. (.radiusProperty shadow)  20)]))]))
+                         (.setCycleCount Animation/INDEFINITE))]
+    {:start-animation (fn []
+                        (reset! animation-started (System/currentTimeMillis))
+                        (.setEffect node shadow)
+                        (.play executing-anim))
+     :stop-animation (fn []
+                       (if (> (System/currentTimeMillis) (+ @animation-started animation-min))
+                         (do (.stop executing-anim)
+                             (.setEffect node nil))
+                         (async/take! (async/timeout animation-min)
+                                      (fn [_]
+                                        (.stop executing-anim)
+                                        (.setEffect node nil)))))}))
 
 (defn add-result-node [{:keys [title code result-type]}]
   (let [node-id (str (UUID/randomUUID))
-        update-fn (fn []
+        {:keys [node sub-bar-pane]} (make-node-ui {:title    title
+                                                   :on-close (fn [n]
+                                                               (swap! nodes dissoc node-id)
+                                                               (remove-node n))})
+        {:keys [start-animation stop-animation]} (make-executing-animation node)
+        update-fn (fn [update-ui]
                     (binding [*default-data-reader-fn* str]
-                      (when-let [v (eval-on-repl code)]
-                        (read-string v))))
-        ret-val (update-fn)
-        {:keys [result-node result-ui-bar]} (case result-type
-                                              :as-table (make-table-result-node ret-val update-fn)
-                                              :as-value (make-text-result-node ret-val update-fn)
-                                              :as-tree  (make-tree-result-node ret-val update-fn))
-        node (make-node-ui {:title    title
-                            :on-close (fn [n]
-                                        (swap! nodes dissoc node-id)
-                                        (remove-node n))
-                            :sub-bar  result-ui-bar
-                            :child    result-node})]
-    (swap! nodes assoc node-id {:update-fn  update-fn
-                                :code       code})
-    (-> main-pane
-        .getChildren
-        (.add node))))
+                      (start-animation)
+                      (-> (async/thread
+                            (when-let [v (eval-on-repl code)]
+                              (stop-animation)
+                              (read-string v)))
+                          (async/take! (fn [v]
+                                         (stop-animation)
+                                         (update-ui v))))))]
+
+    (update-fn (fn [ret-val]
+                 (run-now
+                  (let [{:keys [result-node result-ui-bar]} (case result-type
+                                                              :as-table (make-table-result-node ret-val update-fn)
+                                                              :as-value (make-text-result-node ret-val update-fn)
+                                                              :as-tree  (make-tree-result-node ret-val update-fn))]
+                    (-> sub-bar-pane .getChildren (.add result-ui-bar))
+                    
+                    (-> node .getChildren (.add result-node))
+                    
+                    (swap! nodes assoc node-id {:update-fn  update-fn :code code})
+                    
+                    (-> main-pane
+                        .getChildren
+                        (.add node))))))))
 
 (defn add-command-node [{:keys [title code] :as args}]
-  (let [update-fn (fn []
-                    (binding [*default-data-reader-fn* str]
-                      (when-let [v (eval-on-repl code)]
-                        (read-string v))))
-        node-id (str (UUID/randomUUID))
+  (let [node-id (str (UUID/randomUUID))
         eval-btn (Button. title)
-        node (make-node-ui {:on-close (fn [n]
-                                        (swap! nodes dissoc node-id)
-                                        (remove-node n))
-                            :child    eval-btn})]
+        {:keys [node]} (make-node-ui {:on-close (fn [n]
+                                                  (swap! nodes dissoc node-id)
+                                                  (remove-node n))})
+        {:keys [start-animation stop-animation]} (make-executing-animation node)
+        update-fn (fn []
+                    (start-animation)
+                    (-> (async/thread
+                          (eval-on-repl code))
+                        (async/take! (fn [_] (stop-animation)))))]
+
+    (-> node .getChildren (.add eval-btn))
+    
     (swap! nodes assoc node-id {:update-fn  update-fn
                                 :code       code})
     (doto eval-btn

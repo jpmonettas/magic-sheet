@@ -2,7 +2,8 @@
 ** DONE Implement value result
 ** TODO Implement configuration saving
 ** TODO Implement configuration loading
-** TODO Implement animation while calling
+** DONE Implement animation while calling
 ** TODO Implement calling with key stroke
 ** TODO Improve appearance
 ** TODO Implement tree result
+** TODO Fix when result returns error
