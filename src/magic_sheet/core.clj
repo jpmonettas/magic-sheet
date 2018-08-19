@@ -120,7 +120,7 @@
        (filter :value)
        first :value))
 
-(defn add-result-node [{:keys [title code]}]
+(defn add-result-node [{:keys [title code result-type]}]
   (let [update-fn (fn []
                     (binding [*default-data-reader-fn* str]
                       (when-let [v (eval-on-repl code)]
@@ -145,7 +145,8 @@
         .getChildren
         (.add node))))
 
-(defn add-command-node [{:keys [title code]}]
+(defn add-command-node [{:keys [title code] :as args}]
+  (prn "Adding for " args)
   (let [update-fn (fn []
                     (binding [*default-data-reader-fn* str]
                       (when-let [v (eval-on-repl code)]
@@ -164,21 +165,7 @@
         .getChildren
         (.add node))))
 
-(def menu (make-context-menu [{:text "New command" :on-click #(println "One")}
-                              {:text "New command for result" :on-click #(println "Two")}
-                              {:text "Save sheet" :on-click #(println "Three")}
-                              {:text "Quit" :on-click #(println "Three")}]))
-
-
-(doto main-pane
-  (.setOnContextMenuRequested (event-handler
-                               [ev]
-                               (.show menu
-                                      main-pane
-                                      (.getScreenX ev)
-                                      (.getScreenY ev)))))
-
-(defn make-new-command-dialog []
+(defn make-new-command-dialog [ask-for-result?]
   (let [d (doto (Dialog.)
             (.setTitle "New command")
             (.initModality Modality/APPLICATION_MODAL)
@@ -192,16 +179,19 @@
         grid-pane (doto (GridPane.)
                     (.setHgap 10)
                     (.setVgap 10)
-                    #_(.setPadding (Insets. 20 20 10 10))
                     (.add (Label. "Title:")      0 0)
                     (.add title-input            1 0)
                     (.add (Label. "Code:")       0 1)
-                    (.add code-txta              1 1)
-                    (.add (Label. "Result as:")  0 2)
-                    (.add type-combo             1 2))
+                    (.add code-txta              1 1))
         result-type-options {"Result as table" :as-table
                              "Result as value" :as-value
                              "Resutl as tree"  :as-tree}]
+
+    (when ask-for-result?
+      (doto grid-pane
+        (.add (Label. "Result as:")  0 2)
+        (.add type-combo             1 2)))
+    
     (-> type-combo
         .getItems
         (.addAll (into-array String (keys result-type-options))))
@@ -216,10 +206,31 @@
     (.setResultConverter d (reify Callback
                              (call [this button]
                                (when (= "OK" (.getText button))
-                                 {:title       (.getText title-input)
-                                  :code        (.getText code-txta)
-                                  :result-type (result-type-options (.getValue type-combo))}))))
+                                 (cond-> {:title       (.getText title-input)
+                                          :code        (.getText code-txta)}
+                                   ask-for-result? (assoc :result-type (result-type-options (.getValue type-combo))))))))
     d))
+
+
+(def menu (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog false)
+                                                                  .showAndWait
+                                                                  .get 
+                                                                  add-command-node)}
+                              {:text "New command for result" :on-click #(-> (make-new-command-dialog true)
+                                                                             .showAndWait
+                                                                             .get
+                                                                             add-result-node)}
+                              {:text "Save sheet" :on-click #(println "Saving all!")}
+                              {:text "Quit" :on-click #(println "Bye bye")}]))
+
+
+(doto main-pane
+  (.setOnContextMenuRequested (event-handler
+                               [ev]
+                               (.show menu
+                                      main-pane
+                                      (.getScreenX ev)
+                                      (.getScreenY ev)))))
 #_
 (comment
 
@@ -233,7 +244,7 @@
   
   (run-now (-> stage .build .show))
 
-  (run-now (-> (make-new-command-dialog) .showAndWait println))
+  (run-now (-> (make-new-command-dialog true) .showAndWait println))
  
   (doall 
    (pmap (fn [_]
