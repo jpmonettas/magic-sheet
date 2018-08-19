@@ -261,27 +261,20 @@
 #_
 (comment
 
-  (run-now (when-let [s @stage] (.close s)))
-  
   (run-now (add-result-node {:title "Super node"
                              :code "(user/super-test)"}))
 
   (run-now (add-command-node {:title "Super node"
                               :code "(user/increment-atom)"}))
   
-  (run-now (-> stage .build .show))
-
   (run-now (-> (make-new-command-dialog true) .showAndWait println))
- 
-  (doall 
-   (pmap (fn [_]
-           (->> (-> repl-client
-                    (repl/message {:op :eval :code "(user/test)"})
-                    doall)
-                (filter :value)
-                first
-                :value))
-         (range 5)))
+
+  (->> (-> repl-client
+           (repl/message {:op :eval :code "(+ 3 4)"}))
+       (filter :value)
+       first
+       :value)
+  
  )
 
 
