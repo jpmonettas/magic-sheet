@@ -2,7 +2,8 @@
   (:require [nrepl.core :as repl]
             [clojure.core.async :as async]
             [magic-sheet.utils :refer [run-later run-now event-handler]]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [clojure.pprint :as pprint])
   (:import [javafx.scene SceneBuilder]
            [javafx.scene.control Button
             TableView
@@ -113,25 +114,37 @@
        first :value))
 
 (defn add-result-node [{:keys [title code result-type]}]
-  (let [update-fn (fn []
+  (let [node-id (str (UUID/randomUUID))
+        update-fn (fn []
                     (binding [*default-data-reader-fn* str]
                       (when-let [v (eval-on-repl code)]
                         (read-string v))))
         ret-val (update-fn)
-        {:keys [result-node data-model]} (make-table-ui ret-val)
-        result-ui-bar (make-result-ui-bar {:on-update (fn []
-                                                        (doto data-model
-                                                          (.clear)
-                                                          (.addAll (into-array Object (update-fn)))))})
-        node-id (str (UUID/randomUUID))
+        {:keys [result-node result-ui-bar]} (case result-type
+                                              :as-table (let [{:keys [result-node data-model]} (make-table-ui ret-val)]
+                                                          {:result-node result-node
+                                                           :result-ui-bar (make-result-ui-bar {:on-update (fn []
+                                                                                                            (doto data-model
+                                                                                                              (.clear)
+                                                                                                              (.addAll (into-array Object (update-fn)))))})})
+                                              :as-value (let [ta (doto (TextArea.)
+                                                                   (.setEditable false))
+                                                              format-and-set (fn [v]
+                                                                               (doto ta
+                                                                                 (.setText (with-out-str
+                                                                                             (pprint/pprint v)))))]
+                                                          (format-and-set ret-val)
+                                                          {:result-node ta
+                                                           :result-ui-bar (make-result-ui-bar {:on-update (fn []
+                                                                                                            (format-and-set (update-fn)))})})
+                                              :as-tree {:result-node (Text. "Sowing result as tree not implemented yet")})
         node (make-node-ui {:title    title
                             :on-close (fn [n]
                                         (swap! nodes dissoc node-id)
                                         (remove-node n))
-                            :sub-bar      result-ui-bar
+                            :sub-bar  result-ui-bar
                             :child    result-node})]
-    (swap! nodes assoc node-id {:data-model data-model
-                                :update-fn  update-fn
+    (swap! nodes assoc node-id {:update-fn  update-fn
                                 :code       code})
     (-> main-pane
         .getChildren
