@@ -113,6 +113,29 @@
        (filter :value)
        first :value))
 
+(defn make-table-result-node [ret-val update-fn]
+  (let [{:keys [result-node data-model]} (make-table-ui ret-val)]
+    {:result-node result-node
+     :result-ui-bar (make-result-ui-bar {:on-update (fn []
+                                                      (doto data-model
+                                                        (.clear)
+                                                        (.addAll (into-array Object (update-fn)))))})}))
+
+(defn make-text-result-node [ret-val update-fn]
+  (let [ta (doto (TextArea.)
+             (.setEditable false))
+        format-and-set (fn [v]
+                         (doto ta
+                           (.setText (with-out-str
+                                       (pprint/pprint v)))))]
+    (format-and-set ret-val)
+    {:result-node ta
+     :result-ui-bar (make-result-ui-bar {:on-update (fn []
+                                                      (format-and-set (update-fn)))})}))
+
+(defn make-tree-result-node [ret-val update-fn]
+  {:result-node (Text. "Sowing result as tree not implemented yet")})
+
 (defn add-result-node [{:keys [title code result-type]}]
   (let [node-id (str (UUID/randomUUID))
         update-fn (fn []
@@ -121,23 +144,9 @@
                         (read-string v))))
         ret-val (update-fn)
         {:keys [result-node result-ui-bar]} (case result-type
-                                              :as-table (let [{:keys [result-node data-model]} (make-table-ui ret-val)]
-                                                          {:result-node result-node
-                                                           :result-ui-bar (make-result-ui-bar {:on-update (fn []
-                                                                                                            (doto data-model
-                                                                                                              (.clear)
-                                                                                                              (.addAll (into-array Object (update-fn)))))})})
-                                              :as-value (let [ta (doto (TextArea.)
-                                                                   (.setEditable false))
-                                                              format-and-set (fn [v]
-                                                                               (doto ta
-                                                                                 (.setText (with-out-str
-                                                                                             (pprint/pprint v)))))]
-                                                          (format-and-set ret-val)
-                                                          {:result-node ta
-                                                           :result-ui-bar (make-result-ui-bar {:on-update (fn []
-                                                                                                            (format-and-set (update-fn)))})})
-                                              :as-tree {:result-node (Text. "Sowing result as tree not implemented yet")})
+                                              :as-table (make-table-result-node ret-val update-fn)
+                                              :as-value (make-text-result-node ret-val update-fn)
+                                              :as-tree  (make-tree-result-node ret-val update-fn))
         node (make-node-ui {:title    title
                             :on-close (fn [n]
                                         (swap! nodes dissoc node-id)
@@ -288,6 +297,6 @@
        first
        :value)
   
- )
+  )
 
 
