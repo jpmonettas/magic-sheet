@@ -1,22 +1,23 @@
 (ns magic-sheet.core
   (:gen-class)
-  (:require [clojure.pprint :as pprint]
+  (:require [clojure.core.async :as async]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]
             [magic-sheet.utils :refer [event-handler run-now]]
-            [nrepl.core :as repl]
-            [clojure.core.async :as async])
+            [nrepl.core :as repl])
   (:import java.util.UUID
            [javafx.animation Animation KeyFrame KeyValue Timeline]
            javafx.beans.property.ReadOnlyObjectWrapper
            javafx.collections.FXCollections
            [javafx.scene Node SceneBuilder]
-           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableColumn TableView TextArea TextField]
+           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableCell TableColumn TableView TextArea TextField]
            javafx.scene.effect.DropShadow
+           [javafx.scene.input Clipboard DataFormat]
            [javafx.scene.layout BorderPane GridPane HBox Pane VBox]
            javafx.scene.paint.Color
            javafx.scene.text.Text
            [javafx.stage Modality StageBuilder]
-           [javafx.util Callback Duration] 
+           [javafx.util Callback Duration]
            utils.DragResizeMod))
 
 (def main-pane nil)
@@ -26,7 +27,7 @@
 (def repl-client nil)
 (def nodes (atom {}))
 
-(def repl-command-timeout 5000) ;; timeout in  millis
+(def repl-command-timeout 60000) ;; timeout in  millis 1 minute
 
 (defn make-context-menu [items]
   (let [cm (ContextMenu.)
@@ -45,14 +46,27 @@
   
   (let [obs-list (FXCollections/observableArrayList data)
         cols (->> data first keys)
+        table (doto (TableView. obs-list)
+                (.setColumnResizePolicy TableView/CONSTRAINED_RESIZE_POLICY))
         table-columns (->> cols
                            (map (fn [c]
-                                  (doto (TableColumn. (str c))
+                                  (doto (TableColumn. (str c)) 
                                     (.setCellValueFactory (reify Callback
                                                             (call [this v]
-                                                              (ReadOnlyObjectWrapper. (get (.getValue v) c)))))))))
-        table (doto (TableView. obs-list)
-                (.setColumnResizePolicy TableView/CONSTRAINED_RESIZE_POLICY))]
+                                                              (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
+                                    (.setCellFactory (reify Callback
+                                                       (call [this v]                                                         
+                                                         (let [cell (proxy [TableCell] []
+                                                                      (updateItem [item empty]
+                                                                        (proxy-super updateItem item empty)
+                                                                        (when item
+                                                                         (.setText this (.toString item)))))]
+                                                           (.setOnMouseClicked cell (event-handler
+                                                                                     [e]
+                                                                                     (let [cell-text (-> e .getTarget .getText)]
+                                                                                       (doto (Clipboard/getSystemClipboard)
+                                                                                         (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
+                                                           cell))))))))]
     (-> table
         .getColumns
         (.addAll (into-array TableColumn table-columns)))
