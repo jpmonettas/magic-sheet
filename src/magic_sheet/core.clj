@@ -1,10 +1,10 @@
 (ns magic-sheet.core
-  (:gen-class)
   (:require [clojure.core.async :as async]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [magic-sheet.utils :refer [event-handler run-now]]
-            [nrepl.core :as repl])
+            [nrepl.core :as repl]
+            [clojure.edn :as edn])
   (:import java.util.UUID
            [javafx.animation Animation KeyFrame KeyValue Timeline]
            javafx.beans.property.ReadOnlyObjectWrapper
@@ -18,7 +18,9 @@
            javafx.scene.text.Text
            [javafx.stage Modality StageBuilder]
            [javafx.util Callback Duration]
-           utils.DragResizeMod))
+           [utils DragResizeMod DragResizeMod$OnDragResizeEventListener]
+           [java.io File])
+  (:gen-class))
 
 (def main-pane nil)
 (def menu nil)
@@ -27,7 +29,20 @@
 (def repl-client nil)
 (def nodes (atom {}))
 
+(def magic-sheet-file-name "./magic-sheet.edn")
 (def repl-command-timeout 60000) ;; timeout in  millis 1 minute
+
+(defn store-node! [{:keys [node-id] :as node}]
+  (swap! nodes assoc node-id node))
+
+(defn update-node-in-store! [{:keys [node-id] :as node}]
+  (swap! nodes update node-id merge node))
+
+(defn remove-node-from-store! [node-id]
+  (swap! nodes dissoc node-id))
+
+(defn dump-nodes-to-file []
+  (spit magic-sheet-file-name (pr-str @nodes)))
 
 (defn make-context-menu [items]
   (let [cm (ContextMenu.)
@@ -54,13 +69,13 @@
                                     (.setCellValueFactory (reify Callback
                                                             (call [this v]
                                                               (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
-                                    (.setCellFactory (reify Callback
+                                    #_(.setCellFactory (reify Callback
                                                        (call [this v]                                                         
                                                          (let [cell (proxy [TableCell] []
                                                                       (updateItem [item empty]
                                                                         (proxy-super updateItem item empty)
                                                                         (when item
-                                                                         (.setText this (.toString item)))))]
+                                                                          (.setText this (.toString item)))))]
                                                            (.setOnMouseClicked cell (event-handler
                                                                                      [e]
                                                                                      (let [cell-text (-> e .getTarget .getText)]
@@ -84,7 +99,8 @@
     
     main-box))
 
-(defn make-node-ui [{:keys [title on-close]}]
+(defn make-node-ui [{:keys [node-id title on-close x y w h]
+                     :or {x 0 y 0 h 100 w 100}}]
   (let [title-txt (Text. title)
         close-btn (Button. "X")
         sub-bar (HBox.)
@@ -93,15 +109,26 @@
               (.setCenter sub-bar)
               (.setRight close-btn))
         main-box (doto (VBox. (into-array Node [bar]))
-                   (.setStyle "-fx-background-color: red; -fx-padding: 10;"))]
+                   (.setStyle "-fx-background-color: red; -fx-padding: 10;")
+                   (.setLayoutX x)
+                   (.setLayoutY y)
+                   (.setPrefSize w h))]
 
     (doto close-btn
       (.setOnAction (event-handler [_] (on-close main-box))))
 
-    (DragResizeMod/makeResizable main-box)
+    (DragResizeMod/makeResizable main-box (reify DragResizeMod$OnDragResizeEventListener
+                                            (onDrag [this node x y h w]
+                                              (update-node-in-store! {:node-id node-id :x x :y y :w w :h h})
+                                              (.setLayoutX node x)
+                                              (.setLayoutY node y))
+                                            (onResize [this node x y h w]
+                                              (update-node-in-store! {:node-id node-id :x x :y y :w w :h h})
+                                              (.setPrefSize node w h))))
     
     {:node main-box
-     :sub-bar-pane sub-bar}))
+     :sub-bar-pane sub-bar
+     :x x :y y :w w :h h}))
 
 (defn remove-node [n]
   (-> main-pane
@@ -161,12 +188,11 @@
                                         (.stop executing-anim)
                                         (.setEffect node nil)))))}))
 
-(defn add-result-node [{:keys [title code result-type]}]
-  (let [node-id (str (UUID/randomUUID))
-        {:keys [node sub-bar-pane]} (make-node-ui {:title    title
-                                                   :on-close (fn [n]
-                                                               (swap! nodes dissoc node-id)
-                                                               (remove-node n))})
+(defn add-result-node [{:keys [title code x y w h result-type node-id] :as node}]
+  (let [{:keys [node sub-bar-pane x y w h]} (make-node-ui (merge node
+                                                                 {:on-close (fn [n]
+                                                                              (remove-node-from-store! node-id)
+                                                                              (remove-node n))}))
         {:keys [start-animation stop-animation]} (make-executing-animation node)
         update-fn (fn [update-ui]
                     (binding [*default-data-reader-fn* str]
@@ -188,19 +214,27 @@
                     (-> sub-bar-pane .getChildren (.add result-ui-bar))
                     
                     (-> node .getChildren (.add result-node))
-                    
-                    (swap! nodes assoc node-id {:update-fn  update-fn :code code})
-                    
+
                     (-> main-pane
                         .getChildren
-                        (.add node))))))))
+                        (.add node))
+                    
+                    (store-node! {:node-id node-id
+                                  :title title
+                                  :type :for-result
+                                  :result-type result-type
+                                  :code code
+                                  :x x
+                                  :y y
+                                  :w w
+                                  :h h})))))))
 
-(defn add-command-node [{:keys [title code] :as args}]
-  (let [node-id (str (UUID/randomUUID))
-        eval-btn (Button. title)
-        {:keys [node]} (make-node-ui {:on-close (fn [n]
-                                                  (swap! nodes dissoc node-id)
-                                                  (remove-node n))})
+(defn add-command-node [{:keys [title code x y w h node-id] :as node}]
+  (let [eval-btn (Button. title)
+        {:keys [node x y w h]} (make-node-ui (merge node
+                                                    {:on-close (fn [n]
+                                                                 (remove-node-from-store! node-id)
+                                                                 (remove-node n))}))
         {:keys [start-animation stop-animation]} (make-executing-animation node)
         update-fn (fn []
                     (start-animation)
@@ -210,16 +244,25 @@
 
     (-> node .getChildren (.add eval-btn))
     
-    (swap! nodes assoc node-id {:update-fn  update-fn
-                                :code       code})
     (doto eval-btn
       (.setOnAction (event-handler [_] (update-fn))))
+    
     (-> main-pane
         .getChildren
-        (.add node))))
+        (.add node))
+
+    (store-node! {:node-id node-id
+                  :title title
+                  :type :for-command
+                  :code code
+                  :x x
+                  :y y
+                  :w w
+                  :h h})))
 
 (defn make-new-command-dialog [ask-for-result?]
-  (let [d (doto (Dialog.)
+  (let [node-id (str (UUID/randomUUID))
+        d (doto (Dialog.)
             (.setTitle "New command")
             (.initModality Modality/APPLICATION_MODAL)
             (.setResizable false)
@@ -259,10 +302,22 @@
     (.setResultConverter d (reify Callback
                              (call [this button]
                                (when (= "OK" (.getText button))
-                                 (cond-> {:title       (.getText title-input)
-                                          :code        (.getText code-txta)}
+                                 (cond-> {:node-id node-id
+                                          :title   (.getText title-input)
+                                          :code    (.getText code-txta)}
                                    ask-for-result? (assoc :result-type (result-type-options (.getValue type-combo))))))))
     d))
+
+(defn load-nodes-from-file [file]
+  (if (.exists (File. file))
+   (let [loaded-nodes (->> (slurp file)
+                           edn/read-string
+                           vals)]
+     (doseq [{:keys [type] :as n} loaded-nodes]
+       (case type
+         :for-command (add-command-node n)
+         :for-result (add-result-node n))))
+   (println "No magic-sheet.edn found, starting a new sheet.")))
 
 (defn -main
   ""
@@ -296,7 +351,9 @@
                                                                                                    .showAndWait
                                                                                                    .get
                                                                                                    add-result-node)}
-                                                    {:text "Save sheet" :on-click #(println "Saving all!")}
+                                                    {:text "Save sheet" :on-click #(do
+                                                                                     (dump-nodes-to-file)
+                                                                                     (println "All nodes saved to" magic-sheet-file-name))}
                                                     {:text "Quit" :on-click #(do
                                                                                (println "Bye bye")
                                                                                (System/exit 0))}])))
@@ -318,7 +375,9 @@
                                          main-pane
                                          (.getScreenX ev)
                                          (.getScreenY ev))))
-     (-> stage .build .show))))
+     (-> stage .build .show)
+
+     (load-nodes-from-file magic-sheet-file-name))))
 
 #_
 (comment

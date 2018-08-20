@@ -2,8 +2,8 @@
 ** DONE Implement value result
 ** DONE Implement animation while calling
 ** DONE Make tables cells clickable for copy
-** TODO Implement configuration saving
-** TODO Implement configuration loading
+** DONE Implement configuration saving
+** DONE Implement configuration loading
 ** TODO Implement named params 
 ** TODO Implement calling with key stroke
 ** TODO Improve appearance
