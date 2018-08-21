@@ -2,6 +2,11 @@
 
 Create magic sheets to improve your Clojure[Script] repl experience.
 
+## Prerequisites 
+
+- Install JDK 8
+- If you install OpenJDK make sure you install openjfx
+
 ## Building 
 
 ```bash

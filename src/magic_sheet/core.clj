@@ -23,6 +23,7 @@
            [java.io File])
   (:gen-class))
 
+
 (def main-pane nil)
 (def menu nil)
 (def stage nil)
@@ -63,7 +64,7 @@
     cm))
 
 (defn make-table-ui [data]
-  (assert (seq? data) (str "Data is not a sequence " (type data)))
+  (assert (coll? data) (str "Data is not a collection " (type data)))
   (assert (every? map? data) "Sequence elements should be maps")
   
   (let [obs-list (FXCollections/observableArrayList data)
@@ -173,7 +174,7 @@
   (let [animation-min 1000
         animation-started (atom nil)
         shadow (doto (DropShadow.)
-                 (.setColor (Color/web "#DF703B"))
+                 (.setColor (Color/web "#0D8163"))
                  (.setSpread 0.75))
         executing-anim (doto (Timeline. (into-array KeyFrame
                                                     [(KeyFrame. Duration/ZERO (into-array KeyValue [(KeyValue. (.radiusProperty shadow)  0)]))
