@@ -5,7 +5,7 @@
 ** DONE Implement configuration saving
 ** DONE Implement configuration loading
 ** DONE Implement named params 
-** TODO Implement calling with key stroke
+** DONE Implement calling with key stroke
 ** TODO Improve appearance
 ** TODO Table cell hover should show copy icon
 ** TODO Implement tree result
