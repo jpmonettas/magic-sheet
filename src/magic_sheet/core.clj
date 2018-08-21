@@ -111,7 +111,8 @@
      :update-result update-result}))
 
 (defn make-params-box [inputs]
-  (let [make-p-hbox (fn [[pname tf]] (HBox. 5 (into-array Node [(Label. pname) tf])))]
+  (let [make-p-hbox (fn [[pname tf]] (HBox. 5 (into-array Node [(doto (Label. pname)
+                                                                  (.setStyle styles/label)) tf])))]
    (VBox. 5 (into-array Node (map make-p-hbox inputs)))))
 
 (defn make-node-ui [{:keys [node-id title on-close result-type x y w h key ret-val input-params]
@@ -224,12 +225,11 @@
                   (async/thread
                     (try
                       (when-let [v (eval-code (get-params-values))]
-                        (run-now (stop-animation)
-                                 (when update-result
+                        (run-now (when update-result
                                    (update-result v))))
                       (catch Exception e
-                        (run-now (stop-animation))
-                        (.printStackTrace e)))))]
+                        (.printStackTrace e))
+                      (finally (run-now (stop-animation))))))]
 
     (doto exec-button
       (.setOnAction (event-handler [_] (exec-fn))))
@@ -262,17 +262,20 @@
         key-input (TextField.)
         code-txta (TextArea.)
         type-combo (ComboBox.)
+        make-label (fn [text] (doto (Label. text)
+                                (.setStyle styles/label)))
         grid-pane (doto (GridPane.)
                     (.setHgap 10)
                     (.setVgap 10)
-                    (.add (Label. "Title:")      0 0)
-                    (.add title-input            1 0)
-                    (.add (Label. "Code:")       0 1)
-                    (.add code-txta              1 1)
-                    (.add (Label. "Key:")        0 2)
-                    (.add key-input              1 2)
-                    (.add (Label. "Result as:")  0 3)
-                    (.add type-combo             1 3))
+                    (.add (make-label "Title:")      0 0)
+                    (.add title-input                1 0)
+                    (.add (make-label "Code:")       0 1)
+                    (.add code-txta                  1 1)
+                    (.add (make-label "Key:")        0 2)
+                    (.add key-input                  1 2)
+                    (.add (make-label "Result as:")  0 3)
+                    (.add type-combo                 1 3)
+                    (.setStyle styles/backpane))
         result-type-options {"Result as table" :as-table
                              "Result as value" :as-value}]
 
