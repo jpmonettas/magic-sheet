@@ -10,7 +10,7 @@
            javafx.beans.property.ReadOnlyObjectWrapper
            javafx.collections.FXCollections
            [javafx.scene Node SceneBuilder]
-           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableCell TableColumn TableView TextArea TextField]
+           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableColumn TableView TextArea TextField]
            javafx.scene.effect.DropShadow
            [javafx.scene.input Clipboard DataFormat]
            [javafx.scene.layout BorderPane GridPane HBox Pane VBox]
@@ -18,11 +18,9 @@
            javafx.scene.text.Text
            [javafx.stage Modality StageBuilder]
            [javafx.util Callback Duration]
-           [utils DragResizeMod DragResizeMod$OnDragResizeEventListener]
+           [utils DragResizeMod DragResizeMod$OnDragResizeEventListener CellUtils] 
            [java.io File])
   (:gen-class))
-
-(javafx.embed.swing.JFXPanel.)
 
 (def main-pane nil)
 (def menu nil)
@@ -64,20 +62,16 @@
   (let [obs-list (FXCollections/observableArrayList data)
         cols (->> data first keys)
         table (doto (TableView. obs-list)
-                (.setColumnResizePolicy TableView/CONSTRAINED_RESIZE_POLICY))
+                #_(.setColumnResizePolicy TableView/CONSTRAINED_RESIZE_POLICY))
         table-columns (->> cols
                            (map (fn [c]
                                   (doto (TableColumn. (str c)) 
                                     (.setCellValueFactory (reify Callback
                                                             (call [this v]
                                                               (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
-                                    #_(.setCellFactory (reify Callback
+                                    (.setCellFactory (reify Callback
                                                        (call [this v]                                                         
-                                                         (let [cell (proxy [TableCell] []
-                                                                      (updateItem [item empty]
-                                                                        (proxy-super updateItem item empty)
-                                                                        (when item
-                                                                          (.setText this (.toString item)))))]
+                                                         (let [cell (CellUtils/makeTableCell)]
                                                            (.setOnMouseClicked cell (event-handler
                                                                                      [e]
                                                                                      (let [cell-text (-> e .getTarget .getText)]
