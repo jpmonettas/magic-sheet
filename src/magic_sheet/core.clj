@@ -22,6 +22,8 @@
            [java.io File])
   (:gen-class))
 
+(javafx.embed.swing.JFXPanel.)
+
 (def main-pane nil)
 (def menu nil)
 (def stage nil)
@@ -42,12 +44,13 @@
   (swap! nodes dissoc node-id))
 
 (defn dump-nodes-to-file []
-  (let [nodes-str (->> @nodes
-                       (map (fn [[nid n]]
-                              [nid (dissoc n :update-fn)]))
-                       (into {})
-                       pr-str)]
-    (spit magic-sheet-file-name )))
+  (let [nodes-str (with-out-str
+                    (->> @nodes
+                         (map (fn [[nid n]]
+                                [nid (dissoc n :exec-fn)]))
+                         (into {})
+                         pprint/pprint))]
+    (spit magic-sheet-file-name nodes-str)))
 
 (defn make-context-menu [items]
   (let [cm (ContextMenu.)
@@ -88,27 +91,48 @@
     {:result-node table
      :data-model obs-list}))
 
-(defn make-result-ui-bar [{:keys [on-update]}]
-  (let [update-btn (Button. "[r]")
-        bar (doto (HBox. (into-array Node [update-btn])))
-        main-box (doto (VBox. (into-array Node [bar]))
-                   (.setStyle "-fx-background-color: green; -fx-padding: 10;"))]
-    
-    (doto update-btn
-      (.setOnAction (event-handler [_] (on-update))))
-    
-    main-box))
+(defn make-table-result-node [ret-val]
+  (let [{:keys [result-node data-model]} (make-table-ui ret-val)
+        update-result (fn [v]
+                        (doto data-model
+                          (.clear)
+                          (.addAll (into-array Object v))))]
+    {:result-node result-node
+     :update-result update-result}))
 
-(defn make-node-ui [{:keys [node-id title on-close x y w h key]
+(defn make-text-result-node [ret-val]
+  (let [ta (doto (TextArea.)
+             (.setEditable false))
+        update-result (fn [v]
+                        (doto ta
+                          (.setText (with-out-str
+                                      (pprint/pprint v)))))]
+    (update-result ret-val)
+    {:result-node ta
+     :update-result update-result}))
+
+(defn make-params-box [inputs]
+  (VBox. (into-array Node (map (fn [[pname tf]] (HBox. (into-array Node [(Label. pname) tf]))) inputs))))
+
+(defn make-node-ui [{:keys [node-id title on-close result-type x y w h key ret-val input-params]
                      :or {x 0 y 0 h 100 w 100}}]
-  (let [title-txt (Text. (format "[%s] %s" key title))
+  (let [title-btn (Button. (format "[%s] %s" key title))
+        inputs (->> input-params
+                    (map (fn [p] [p (TextField.)]))
+                    (into {}))
+        get-params-values (fn [] (map (fn [[p tf]] [p (.getText tf)]) inputs))
         close-btn (Button. "X")
-        sub-bar (HBox.)
         bar (doto (BorderPane.)
-              (.setLeft title-txt)
-              (.setCenter sub-bar)
+              (.setLeft title-btn)
               (.setRight close-btn))
-        main-box (doto (VBox. (into-array Node [bar]))
+        {:keys [update-result result-node]} (case result-type
+                                              :as-table (make-table-result-node ret-val)
+                                              :as-value (make-text-result-node ret-val)
+                                              nil)
+        
+        main-box (doto (VBox. (into-array Node (cond-> [bar]
+                                                 (not-empty input-params) (conj (make-params-box inputs)) 
+                                                 result-node              (conj result-node))))
                    (.setStyle "-fx-background-color: red; -fx-padding: 10;")
                    (.setLayoutX x)
                    (.setLayoutY y)
@@ -127,8 +151,10 @@
                                               (.setPrefSize node w h))))
     
     {:node main-box
-     :sub-bar-pane sub-bar
-     :x x :y y :w w :h h}))
+     :x x :y y :w w :h h
+     :exec-button title-btn
+     :update-result update-result
+     :get-params-values get-params-values}))
 
 (defn remove-node [n]
   (-> main-pane
@@ -140,33 +166,9 @@
        (filter :value)
        first :value))
 
-(defn make-table-result-node [ret-val generic-update-fn]
-  (let [{:keys [result-node data-model]} (make-table-ui ret-val)
-        update-fn (fn []
-                    (generic-update-fn
-                     (fn [v]
-                       (doto data-model
-                         (.clear)
-                         (.addAll (into-array Object v))))))]
-    {:result-node result-node
-     :result-ui-bar (make-result-ui-bar {:on-update update-fn})
-     :update-fn update-fn}))
 
-(defn make-text-result-node [ret-val generic-update-fn]
-  (let [ta (doto (TextArea.)
-             (.setEditable false))
-        format-and-set (fn [v]
-                         (doto ta
-                           (.setText (with-out-str
-                                       (pprint/pprint v)))))
-        update-fn (fn []
-                    (generic-update-fn format-and-set))]
-    (format-and-set ret-val)
-    {:result-node ta
-     :result-ui-bar (make-result-ui-bar {:on-update update-fn})
-     :update-fn update-fn}))
 
-(defn make-tree-result-node [ret-val update-fn]
+#_(defn make-tree-result-node [ret-val update-fn]
   {:result-node (Text. "Sowing result as tree not implemented yet for val ")})
 
 (defn make-executing-animation [node]
@@ -192,50 +194,7 @@
                                         (.stop executing-anim)
                                         (.setEffect node nil)))))}))
 
-(defn add-result-node [{:keys [title code x y w h result-type node-id key] :as node}]
-  (let [{:keys [node sub-bar-pane x y w h]} (make-node-ui (merge node
-                                                                 {:on-close (fn [n]
-                                                                              (remove-node-from-store! node-id)
-                                                                              (remove-node n))}))
-        {:keys [start-animation stop-animation]} (make-executing-animation node)
-        generic-update-fn (fn [update-ui]
-                    (binding [*default-data-reader-fn* str]
-                      (start-animation)
-                      (-> (async/thread
-                            (when-let [v (eval-on-repl code)]
-                              (stop-animation)
-                              (read-string v)))
-                          (async/take! (fn [v]
-                                         (stop-animation)
-                                         (update-ui v))))))]
-
-    (generic-update-fn (fn [ret-val]
-                         (run-now
-                          (let [{:keys [result-node result-ui-bar update-fn]} (case result-type
-                                                                                :as-table (make-table-result-node ret-val generic-update-fn)
-                                                                                :as-value (make-text-result-node ret-val generic-update-fn)
-                                                                                :as-tree  (make-tree-result-node ret-val generic-update-fn))]
-                            (-> sub-bar-pane .getChildren (.add result-ui-bar))
-                            
-                            (-> node .getChildren (.add result-node))
-
-                            (-> main-pane
-                                .getChildren
-                                (.add node))
-                            
-                            (store-node! {:node-id node-id
-                                          :title title
-                                          :type :for-result
-                                          :result-type result-type
-                                          :code code
-                                          :x x
-                                          :y y
-                                          :w w
-                                          :h h
-                                          :key key
-                                          :update-fn update-fn})))))))
-
-(defn param-names [code]
+(defn params-names [code]
   (->> (re-seq #"\$\{(.+?)\}" code)
        (map second)))
 
@@ -245,48 +204,55 @@
           code-template
           params-value-map))
 
-(defn make-params-box [inputs]
-  (VBox. (into-array Node (map (fn [[pname tf]] (HBox. (into-array Node [(Label. pname) tf]))) inputs))))
 
-(defn add-command-node [{:keys [title code x y w h node-id key] :as node}]
-  (let [eval-btn (Button. (format "[%s] %s" key title))
-        input-params (param-names code)
-        {:keys [node x y w h]} (make-node-ui (merge (dissoc node :title)
-                                                    {:on-close (fn [n]
-                                                                 (remove-node-from-store! node-id)
-                                                                 (remove-node n))}))
-        inputs (->> input-params
-                    (map (fn [p] [p (TextField.)]))
-                    (into {}))
+(defn add-command-node [{:keys [title code x y w h result-type node-id key] :as node}]
+  (let [input-params (params-names code)        
+        eval-code (fn [params-values]
+                    (binding [*default-data-reader-fn* str]
+                      (-> (render-code code params-values)
+                          eval-on-repl
+                          read-string)))
+        node-ui-result (make-node-ui (merge node
+                                            {:on-close (fn [n]
+                                                         (remove-node-from-store! node-id)
+                                                         (remove-node n))
+                                             :ret-val (when result-type
+                                                       (eval-code {}))
+                                            :input-params input-params}))
+        {:keys [node exec-button update-result get-params-values x y w h]} node-ui-result
+        
         {:keys [start-animation stop-animation]} (make-executing-animation node)
-        update-fn (fn []
-                    (start-animation)
-                    (-> (async/thread
-                          (let [params-values (map (fn [[p tf]] [p (.getText tf)]) inputs)]
-                           (eval-on-repl (render-code code params-values))))
-                        (async/take! (fn [_] (stop-animation)))))]
+        exec-fn (fn []
+                  (start-animation)
+                  (async/thread
+                    (try
+                      (when-let [v (eval-code (get-params-values))]
+                        (run-now (stop-animation)
+                                 (when update-result
+                                   (update-result v))))
+                      (catch Exception e
+                        (run-now (stop-animation))
+                        (.printStackTrace e)))))]
 
-    (-> node .getChildren (.addAll (into-array Node [eval-btn (make-params-box inputs)])))
-    
-    (doto eval-btn
-      (.setOnAction (event-handler [_] (update-fn))))
-    
+    (doto exec-button
+      (.setOnAction (event-handler [_] (exec-fn))))
+
     (-> main-pane
         .getChildren
         (.add node))
-
+    
     (store-node! {:node-id node-id
                   :title title
-                  :type :for-command
+                  :result-type result-type
                   :code code
                   :x x
                   :y y
                   :w w
                   :h h
                   :key key
-                  :update-fn update-fn})))
+                  :exec-fn exec-fn})))
 
-(defn make-new-command-dialog [ask-for-result?]
+(defn make-new-command-dialog []
   (let [node-id (str (UUID/randomUUID))
         d (doto (Dialog.)
             (.setTitle "New command")
@@ -307,16 +273,13 @@
                     (.add (Label. "Code:")       0 1)
                     (.add code-txta              1 1)
                     (.add (Label. "Key:")        0 2)
-                    (.add key-input              1 2))
+                    (.add key-input              1 2)
+                    (.add (Label. "Result as:")  0 3)
+                    (.add type-combo             1 3))
         result-type-options {"Result as table" :as-table
                              "Result as value" :as-value
                              "Resutl as tree"  :as-tree}]
 
-    (when ask-for-result?
-      (doto grid-pane
-        (.add (Label. "Result as:")  0 3)
-        (.add type-combo             1 3)))
-    
     (-> type-combo
         .getItems
         (.addAll (into-array String (keys result-type-options))))
@@ -334,8 +297,8 @@
                                  (cond-> {:node-id node-id
                                           :title   (.getText title-input) 
                                           :code    (.getText code-txta)
-                                          :key     (str/upper-case (first (.getText key-input)))}
-                                   ask-for-result? (assoc :result-type (result-type-options (.getValue type-combo))))))))
+                                          :key     (str/upper-case (first (.getText key-input)))
+                                          :result-type (result-type-options (.getValue type-combo))})))))
     d))
 
 (defn load-nodes-from-file [file]
@@ -344,9 +307,7 @@
                            edn/read-string
                            vals)]
      (doseq [{:keys [type] :as n} loaded-nodes]
-       (case type
-         :for-command (add-command-node n)
-         :for-result (add-result-node n))))
+       (add-command-node n)))
    (println "No magic-sheet.edn found, starting a new sheet.")))
 
 (defn -main
@@ -373,14 +334,10 @@
     (javafx.embed.swing.JFXPanel.)
 
     (alter-var-root #'menu
-                    (constantly (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog false)
+                    (constantly (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog)
                                                                                         .showAndWait
                                                                                         .get 
                                                                                         add-command-node)}
-                                                    {:text "New command for result" :on-click #(-> (make-new-command-dialog true)
-                                                                                                   .showAndWait
-                                                                                                   .get
-                                                                                                   add-result-node)}
                                                     {:text "Save sheet" :on-click #(do
                                                                                      (dump-nodes-to-file)
                                                                                      (println "All nodes saved to" magic-sheet-file-name))}
@@ -399,11 +356,10 @@
         (.setOnKeyPressed (event-handler
                            [ke]
                            (let [key (.getName (.getCode ke))
-                                 _ (println "Looking for " key)
                                  update-fn (->> (vals @nodes)
                                                 (filter #(= (:key %) key))
                                                 first
-                                                :update-fn)]
+                                                :exec-fn)]
                              (when update-fn
                                (update-fn)))))) 
 
