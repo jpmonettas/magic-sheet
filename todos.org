@@ -6,7 +6,7 @@
 ** DONE Implement configuration loading
 ** DONE Implement named params 
 ** DONE Implement calling with key stroke
-** TODO Improve appearance
+** DONE Improve appearance
 ** TODO Table cell hover should show copy icon
-** TODO Implement tree result
+** TODO Show code in node somehow
 ** TODO Fix when result returns error

@@ -1,6 +1,7 @@
 (ns magic-sheet.core
   (:require [clojure.core.async :as async]
             [clojure.pprint :as pprint]
+            [magic-sheet.styles :as styles]
             [clojure.string :as str]
             [magic-sheet.utils :refer [event-handler run-now]]
             [nrepl.core :as repl]
@@ -21,8 +22,6 @@
            [utils DragResizeMod DragResizeMod$OnDragResizeEventListener CellUtils] 
            [java.io File])
   (:gen-class))
-
-(javafx.embed.swing.JFXPanel.)
 
 (def main-pane nil)
 (def menu nil)
@@ -112,16 +111,19 @@
      :update-result update-result}))
 
 (defn make-params-box [inputs]
-  (VBox. (into-array Node (map (fn [[pname tf]] (HBox. (into-array Node [(Label. pname) tf]))) inputs))))
+  (let [make-p-hbox (fn [[pname tf]] (HBox. 5 (into-array Node [(Label. pname) tf])))]
+   (VBox. 5 (into-array Node (map make-p-hbox inputs)))))
 
 (defn make-node-ui [{:keys [node-id title on-close result-type x y w h key ret-val input-params]
                      :or {x 0 y 0 h 100 w 100}}]
-  (let [title-btn (Button. (format "[%s] %s" key title))
+  (let [title-btn (doto (Button. (format "[%s] %s" key title))
+                    (.setStyle styles/button))
         inputs (->> input-params
                     (map (fn [p] [p (TextField.)]))
                     (into {}))
         get-params-values (fn [] (map (fn [[p tf]] [p (.getText tf)]) inputs))
-        close-btn (Button. "X")
+        close-btn (doto (Button. "X")
+                    (.setStyle styles/button))
         bar (doto (BorderPane.)
               (.setLeft title-btn)
               (.setRight close-btn))
@@ -130,10 +132,10 @@
                                               :as-value (make-text-result-node ret-val)
                                               nil)
         
-        main-box (doto (VBox. (into-array Node (cond-> [bar]
-                                                 (not-empty input-params) (conj (make-params-box inputs)) 
-                                                 result-node              (conj result-node))))
-                   (.setStyle "-fx-background-color: red; -fx-padding: 10;")
+        main-box (doto (VBox. 5 (into-array Node (cond-> [bar]
+                                                   (not-empty input-params) (conj (make-params-box inputs)) 
+                                                   result-node              (conj result-node))))
+                   (.setStyle styles/node)
                    (.setLayoutX x)
                    (.setLayoutY y)
                    (.setPrefSize w h))]
@@ -166,16 +168,11 @@
        (filter :value)
        first :value))
 
-
-
-#_(defn make-tree-result-node [ret-val update-fn]
-  {:result-node (Text. "Sowing result as tree not implemented yet for val ")})
-
 (defn make-executing-animation [node]
   (let [animation-min 1000
         animation-started (atom nil)
         shadow (doto (DropShadow.)
-                 (.setColor (Color/BLUE))
+                 (.setColor (Color/web "#DF703B"))
                  (.setSpread 0.75))
         executing-anim (doto (Timeline. (into-array KeyFrame
                                                     [(KeyFrame. Duration/ZERO (into-array KeyValue [(KeyValue. (.radiusProperty shadow)  0)]))
@@ -277,8 +274,7 @@
                     (.add (Label. "Result as:")  0 3)
                     (.add type-combo             1 3))
         result-type-options {"Result as table" :as-table
-                             "Result as value" :as-value
-                             "Resutl as tree"  :as-tree}]
+                             "Result as value" :as-value}]
 
     (-> type-combo
         .getItems
@@ -345,7 +341,8 @@
                                                                                (println "Bye bye")
                                                                                (System/exit 0))}])))
     
-    (alter-var-root #'main-pane (constantly (Pane.)))
+    (alter-var-root #'main-pane (constantly (doto (Pane.)
+                                              (.setStyle styles/backpane))))
 
     (let [scene (-> (SceneBuilder/create)
                     (.height 500)
