@@ -22,6 +22,8 @@
            [java.io File])
   (:gen-class))
 
+(javafx.embed.swing.JFXPanel.)
+
 (def main-pane nil)
 (def menu nil)
 (def stage nil)
@@ -229,20 +231,38 @@
                                   :w w
                                   :h h})))))))
 
+(defn param-names [code]
+  (->> (re-seq #"\$\{(.+?)\}" code)
+       (map second)))
+
+(defn render-code [code-template params-value-map]
+  (reduce (fn [r [p v]]
+            (str/replace r (format "${%s}" p) (str v)))
+          code-template
+          params-value-map))
+
+(defn make-params-box [inputs]
+  (VBox. (into-array Node (map (fn [[pname tf]] (HBox. (into-array Node [(Label. pname) tf]))) inputs))))
+
 (defn add-command-node [{:keys [title code x y w h node-id] :as node}]
   (let [eval-btn (Button. title)
-        {:keys [node x y w h]} (make-node-ui (merge node
+        input-params (param-names code)
+        {:keys [node x y w h]} (make-node-ui (merge (dissoc node :title)
                                                     {:on-close (fn [n]
                                                                  (remove-node-from-store! node-id)
                                                                  (remove-node n))}))
+        inputs (->> input-params
+                    (map (fn [p] [p (TextField.)]))
+                    (into {}))
         {:keys [start-animation stop-animation]} (make-executing-animation node)
         update-fn (fn []
                     (start-animation)
                     (-> (async/thread
-                          (eval-on-repl code))
+                          (let [params-values (map (fn [[p tf]] [p (.getText tf)]) inputs)]
+                           (eval-on-repl (render-code code params-values))))
                         (async/take! (fn [_] (stop-animation)))))]
 
-    (-> node .getChildren (.add eval-btn))
+    (-> node .getChildren (.addAll (into-array Node [eval-btn (make-params-box inputs)])))
     
     (doto eval-btn
       (.setOnAction (event-handler [_] (update-fn))))

@@ -4,7 +4,7 @@
 ** DONE Make tables cells clickable for copy
 ** DONE Implement configuration saving
 ** DONE Implement configuration loading
-** TODO Implement named params 
+** DONE Implement named params 
 ** TODO Implement calling with key stroke
 ** TODO Improve appearance
 ** TODO Table cell hover should show copy icon
