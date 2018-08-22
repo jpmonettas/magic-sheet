@@ -22,7 +22,7 @@
            [javafx.util Callback Duration]
            [utils CellUtils DragResizeMod DragResizeMod$OnDragResizeEventListener]))
 
-(javafx.embed.swing.JFXPanel.)
+#_(javafx.embed.swing.JFXPanel.)
 
 (def main-pane nil)
 (def menu nil)
@@ -282,10 +282,10 @@
             (.setWidth 620)
             (.setHeight 285))
         
-        title-input (TextField.)
-        key-input (TextField.)
-        code-txta (TextArea.)
-        type-combo (ComboBox.)
+        title-input (doto (TextField.) (.setStyle styles/inputs))
+        key-input (doto (TextField.) (.setStyle styles/inputs))
+        code-txta (doto (TextArea.) (.setStyle styles/inputs))
+        type-combo (doto (ComboBox.) (.setStyle styles/inputs))
         make-label (fn [text] (doto (Label. text)
                                 (.setStyle styles/label)))
         grid-pane (doto (GridPane.)
@@ -310,9 +310,9 @@
         .getDialogPane
         .getButtonTypes
         (.addAll (into-array Object [ButtonType/OK ButtonType/CANCEL])))
-    (-> d
-        .getDialogPane
-        (.setContent grid-pane))
+    (doto (.getDialogPane d)
+      (.setContent grid-pane)
+      (.setStyle styles/backpane))
 
     (.setResultConverter d (reify Callback
                              (call [this button]
