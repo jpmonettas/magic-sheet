@@ -20,7 +20,8 @@
            javafx.scene.paint.Color
            [javafx.stage Modality StageBuilder]
            [javafx.util Callback Duration]
-           [utils CellUtils DragResizeMod DragResizeMod$OnDragResizeEventListener]))
+           [utils CellUtils DragResizeMod DragResizeMod$OnDragResizeEventListener]
+           javafx.scene.Cursor))
 
 #_(javafx.embed.swing.JFXPanel.)
 
@@ -85,19 +86,21 @@
                                                             (.setCellFactory (reify Callback
                                                                                (call [this v]                                                         
                                                                                  (let [cell (CellUtils/makeTableCell)]
-                                                                                   (.setOnMouseClicked cell (event-handler
-                                                                                                             [e]
-                                                                                                             (let [cell-text (-> e .getTarget .getText)]
-                                                                                                               (doto (Clipboard/getSystemClipboard)
-                                                                                                                 (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
-                                                                                   cell))))))))]
+                                                                                   (doto cell
+                                                                                     (.setOnMouseClicked (event-handler
+                                                                                                               [e]
+                                                                                                               (let [cell-text (-> e .getTarget .getText)]
+                                                                                                                 (doto (Clipboard/getSystemClipboard)
+                                                                                                                   (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
+                                                                                     (.setOnMouseEntered (event-handler [e] (.setCursor cell Cursor/HAND)))
+                                                                                     (.setOnMouseExited (event-handler [e] (.setCursor cell Cursor/DEFAULT))))))))))))]
                             (reset! table-data-model obs-list)
                             (doto table
                               (.setItems obs-list))
                             (-> table
                                 .getColumns
                                 (.addAll (into-array TableColumn table-columns))))))]
-    
+    (-> table .getSelectionModel (.setCellSelectionEnabled true))
     {:result-node table
      :update-result update-result}))
 
@@ -124,7 +127,7 @@
 
 (defn make-node-ui [{:keys [node-id title on-close result-type x y w h key ret-val input-params]
                      :or {x 0 y 0 h 100 w 100}}]
-  (let [title-btn (doto (Button. (format "[%s] %s" key title))
+  (let [title-btn (doto (Button. (str (when key (str "[" key "] ")) title))
                     (.setStyle styles/button))
         inputs (->> input-params
                     (map (fn [p] [p (TextField.)]))
@@ -284,7 +287,7 @@
         
         title-input (doto (TextField.) (.setStyle styles/inputs))
         key-input (doto (TextField.) (.setStyle styles/inputs))
-        code-txta (doto (TextArea.) (.setStyle styles/inputs))
+        code-txta (TextArea.) 
         type-combo (doto (ComboBox.) (.setStyle styles/inputs))
         make-label (fn [text] (doto (Label. text)
                                 (.setStyle styles/label)))
@@ -320,7 +323,9 @@
                                  (cond-> {:node-id node-id
                                           :title   (.getText title-input) 
                                           :code    (.getText code-txta)
-                                          :key     (str/upper-case (first (.getText key-input)))
+                                          :key     (some-> (.getText key-input)
+                                                           first
+                                                           str/upper-case)
                                           :result-type (result-type-options (.getValue type-combo))})))))
     d))
 
@@ -357,10 +362,9 @@
     (javafx.embed.swing.JFXPanel.)
 
     (alter-var-root #'menu
-                    (constantly (make-context-menu [{:text "New command" :on-click #(-> (make-new-command-dialog)
-                                                                                        .showAndWait
-                                                                                        .get 
-                                                                                        add-command-node)}
+                    (constantly (make-context-menu [{:text "New command" :on-click #(let [v (.showAndWait (make-new-command-dialog))]
+                                                                                      (when (.isPresent v)
+                                                                                        (add-command-node (.get v))))}
                                                     {:text "Save sheet" :on-click #(do
                                                                                      (dump-nodes-to-file)
                                                                                      (println "All nodes saved to" magic-sheet-file-name))}
