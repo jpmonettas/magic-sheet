@@ -1,27 +1,26 @@
 (ns magic-sheet.core
+  (:gen-class)
   (:require [clojure.core.async :as async]
+            [clojure.edn :as edn]
             [clojure.pprint :as pprint]
-            [magic-sheet.styles :as styles]
             [clojure.string :as str]
+            [magic-sheet.styles :as styles]
             [magic-sheet.utils :refer [event-handler run-now]]
-            [nrepl.core :as repl]
-            [clojure.edn :as edn])
-  (:import java.util.UUID
+            [nrepl.core :as repl])
+  (:import java.io.File
+           java.util.UUID
            [javafx.animation Animation KeyFrame KeyValue Timeline]
            javafx.beans.property.ReadOnlyObjectWrapper
            javafx.collections.FXCollections
            [javafx.scene Node SceneBuilder]
-           [javafx.scene.control Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableColumn TableView TextArea TextField]
+           [javafx.scene.control Alert Alert$AlertType Button ButtonType ComboBox ContextMenu Dialog Label MenuItem TableColumn TableView TextArea TextField]
            javafx.scene.effect.DropShadow
            [javafx.scene.input Clipboard DataFormat]
            [javafx.scene.layout BorderPane GridPane HBox Pane VBox]
            javafx.scene.paint.Color
-           javafx.scene.text.Text
            [javafx.stage Modality StageBuilder]
            [javafx.util Callback Duration]
-           [utils DragResizeMod DragResizeMod$OnDragResizeEventListener CellUtils] 
-           [java.io File])
-  (:gen-class))
+           [utils CellUtils DragResizeMod DragResizeMod$OnDragResizeEventListener]))
 
 (javafx.embed.swing.JFXPanel.)
 
@@ -173,9 +172,15 @@
       (.remove n)))
 
 (defn eval-on-repl [code]
-  (->> (repl/message repl-client {:op :eval :code code})
-       (filter :value)
-       first :value))
+  (let [result (repl/message repl-client {:op :eval :code code})
+        err (->> result
+             (filter :err)
+             first :err)]
+    (if err
+      {:error err}
+      {:value (->> result
+               (filter :value)
+               first :value)})))
 
 (defn make-executing-animation [node]
   (let [animation-min 1000
@@ -210,14 +215,24 @@
           code-template
           params-value-map))
 
+(defn show-error [header error-message]
+  (run-now
+   (let [alert (doto (Alert. Alert$AlertType/ERROR)
+                 (.setTitle "Error")
+                 (.setHeaderText header)
+                 (.setContentText error-message))]
+     (.showAndWait alert))))
+
 
 (defn add-command-node [{:keys [title code x y w h result-type node-id key] :as node}]
   (let [input-params (params-names code)        
         eval-code (fn [params-values]
                     (binding [*default-data-reader-fn* str]
-                      (-> (render-code code params-values)
-                          eval-on-repl
-                          read-string)))
+                      (let [{:keys [error value]} (-> (render-code code params-values)
+                                                      eval-on-repl)]
+                        (if error
+                          (show-error "Error " error)
+                          (read-string value)))))
         node-ui-result (make-node-ui (merge node
                                             {:on-close (fn [n]
                                                          (remove-node-from-store! node-id)
@@ -236,6 +251,7 @@
                         (run-now (when update-result
                                    (update-result v))))
                       (catch Exception e
+                        (show-error "Error "  (with-out-str (.printStackTrace e)))
                         (.printStackTrace e))
                       (finally (run-now (stop-animation))))))]
 
