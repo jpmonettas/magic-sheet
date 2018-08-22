@@ -23,6 +23,7 @@
            [java.io File])
   (:gen-class))
 
+(javafx.embed.swing.JFXPanel.)
 
 (def main-pane nil)
 (def menu nil)
@@ -63,51 +64,57 @@
         (.addAll (into-array MenuItem cm-items)))
     cm))
 
-(defn make-table-ui [data]
-  (assert (coll? data) (str "Data is not a collection " (type data)))
-  (assert (every? map? data) "Sequence elements should be maps")
-  
-  (let [obs-list (FXCollections/observableArrayList data)
-        cols (->> data first keys)
-        table (TableView. obs-list)
-        table-columns (->> cols
-                           (map (fn [c]
-                                  (doto (TableColumn. (str c)) 
-                                    (.setCellValueFactory (reify Callback
-                                                            (call [this v]
-                                                              (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
-                                    (.setCellFactory (reify Callback
-                                                       (call [this v]                                                         
-                                                         (let [cell (CellUtils/makeTableCell)]
-                                                           (.setOnMouseClicked cell (event-handler
-                                                                                     [e]
-                                                                                     (let [cell-text (-> e .getTarget .getText)]
-                                                                                       (doto (Clipboard/getSystemClipboard)
-                                                                                         (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
-                                                           cell))))))))]
-    (-> table
-        .getColumns
-        (.addAll (into-array TableColumn table-columns)))
-    {:result-node table
-     :data-model obs-list}))
+(defn make-table-ui []
+  (let [table-data-model (atom nil)
+        table (TableView.)
+        update-result (fn [data]
+                        (assert (coll? data) (str "Data is not a collection " (type data)))
+                        (assert (every? map? data) "Sequence elements should be maps")
 
-(defn make-table-result-node [ret-val]
-  (let [{:keys [result-node data-model]} (make-table-ui ret-val)
-        update-result (fn [v]
-                        (doto data-model
-                          (.clear)
-                          (.addAll (into-array Object v))))]
+                        (if-let [data-model @table-data-model]
+                          (doto data-model
+                            (.clear)
+                            (.addAll (into-array Object data)))
+                          (let [obs-list (FXCollections/observableArrayList data)
+                                cols (->> data first keys)
+                                table-columns (->> cols
+                                                   (map (fn [c]
+                                                          (doto (TableColumn. (str c)) 
+                                                            (.setCellValueFactory (reify Callback
+                                                                                    (call [this v]
+                                                                                      (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
+                                                            (.setCellFactory (reify Callback
+                                                                               (call [this v]                                                         
+                                                                                 (let [cell (CellUtils/makeTableCell)]
+                                                                                   (.setOnMouseClicked cell (event-handler
+                                                                                                             [e]
+                                                                                                             (let [cell-text (-> e .getTarget .getText)]
+                                                                                                               (doto (Clipboard/getSystemClipboard)
+                                                                                                                 (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
+                                                                                   cell))))))))]
+                            (reset! table-data-model obs-list)
+                            (doto table
+                              (.setItems obs-list))
+                            (-> table
+                                .getColumns
+                                (.addAll (into-array TableColumn table-columns))))))]
+    
+    {:result-node table
+     :update-result update-result}))
+
+(defn make-table-result-node []
+  (let [{:keys [result-node update-result]} (make-table-ui)]
     {:result-node result-node
      :update-result update-result}))
 
-(defn make-text-result-node [ret-val]
+(defn make-text-result-node []
   (let [ta (doto (TextArea.)
              (.setEditable false))
         update-result (fn [v]
                         (doto ta
                           (.setText (with-out-str
                                       (pprint/pprint v)))))]
-    (update-result ret-val)
+    #_(update-result ret-val)
     {:result-node ta
      :update-result update-result}))
 
@@ -130,8 +137,8 @@
               (.setLeft title-btn)
               (.setRight close-btn))
         {:keys [update-result result-node]} (case result-type
-                                              :as-table (make-table-result-node ret-val)
-                                              :as-value (make-text-result-node ret-val)
+                                              :as-table (make-table-result-node)
+                                              :as-value (make-text-result-node)
                                               nil)
         
         main-box (doto (VBox. 5 (into-array Node (cond-> [bar]
