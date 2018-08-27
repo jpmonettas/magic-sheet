@@ -8,8 +8,9 @@
 ** DONE Implement calling with key stroke
 ** DONE Improve appearance
 ** DONE Menu, dialog ,param label colors
-** TODO Dialog colors
-** TODO Error messages in ui
+** DONE Dialog colors
+** DONE Error messages in ui
+** DONE Table cell hover should show copy icon
+** TODO Collapse nodes (bar size) so we can have more stuff on screen
 ** TODO Maps as tables also?
-** TODO Table cell hover should show copy icon
 ** TODO Show code in node somehow

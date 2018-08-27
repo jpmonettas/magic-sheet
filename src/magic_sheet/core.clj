@@ -125,7 +125,7 @@
                                                                   (.setStyle styles/label)) tf])))]
    (VBox. 5 (into-array Node (map make-p-hbox inputs)))))
 
-(defn make-node-ui [{:keys [node-id title on-close result-type x y w h key ret-val input-params]
+(defn make-node-ui [{:keys [node-id title on-close result-type x y w h key input-params]
                      :or {x 0 y 0 h 100 w 100}}]
   (let [title-btn (doto (Button. (str (when key (str "[" key "] ")) title))
                     (.setStyle styles/button))
@@ -175,6 +175,7 @@
       (.remove n)))
 
 (defn eval-on-repl [code]
+  (println "Evaluating " code)
   (let [result (repl/message repl-client {:op :eval :code code})
         err (->> result
              (filter :err)
@@ -240,9 +241,7 @@
                                             {:on-close (fn [n]
                                                          (remove-node-from-store! node-id)
                                                          (remove-node n))
-                                             :ret-val (when result-type
-                                                       (eval-code {}))
-                                            :input-params input-params}))
+                                             :input-params input-params}))
         {:keys [node exec-button update-result get-params-values x y w h]} node-ui-result
         
         {:keys [start-animation stop-animation]} (make-executing-animation node)
