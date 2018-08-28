@@ -6,7 +6,8 @@
             [clojure.string :as str]
             [magic-sheet.styles :as styles]
             [magic-sheet.utils :refer [event-handler run-now]]
-            [nrepl.core :as repl])
+            [nrepl.core :as repl]
+            [clojure.tools.cli :refer [parse-opts]])
   (:import java.io.File
            java.util.UUID
            [javafx.animation Animation KeyFrame KeyValue Timeline]
@@ -31,9 +32,19 @@
 (def repl-connection nil)
 (def repl-client nil)
 (def nodes (atom {}))
+(def debug-mode nil)
 
 (def magic-sheet-file-name "./magic-sheet.edn")
 (def repl-command-timeout 60000) ;; timeout in  millis 1 minute
+
+(defn repl-connect! [host port]
+  ;; Make repl connection and client
+  (try
+    (alter-var-root #'repl-connection (constantly (repl/connect :host host :port port)))
+    (alter-var-root #'repl-client (constantly (repl/client repl-connection repl-command-timeout)))
+    repl-connection
+    (catch java.net.ConnectException ce
+      (println (format "\nConnection refused. Are you sure there is a nrepl server running at %s:%s ?\n" host port)))))
 
 (defn store-node! [{:keys [node-id] :as node}]
   (swap! nodes assoc node-id node))
@@ -68,38 +79,42 @@
   (let [table-data-model (atom nil)
         table (TableView.)
         update-result (fn [data]
-                        (assert (coll? data) (str "Data is not a collection " (type data)))
-                        (assert (every? map? data) "Sequence elements should be maps")
+                        (try
+                          (when debug-mode (println "Updating table result with" data))
+                          (assert (coll? data) (str "Data is not a collection " (type data)))
+                          (assert (every? map? data) "Sequence elements should be maps")
 
-                        (if-let [data-model @table-data-model]
-                          (doto data-model
-                            (.clear)
-                            (.addAll (into-array Object data)))
-                          (let [obs-list (FXCollections/observableArrayList data)
-                                cols (->> data first keys)
-                                table-columns (->> cols
-                                                   (map (fn [c]
-                                                          (doto (TableColumn. (str c)) 
-                                                            (.setCellValueFactory (reify Callback
-                                                                                    (call [this v]
-                                                                                      (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
-                                                            (.setCellFactory (reify Callback
-                                                                               (call [this v]                                                         
-                                                                                 (let [cell (CellUtils/makeTableCell)]
-                                                                                   (doto cell
-                                                                                     (.setOnMouseClicked (event-handler
-                                                                                                               [e]
-                                                                                                               (let [cell-text (-> e .getTarget .getText)]
-                                                                                                                 (doto (Clipboard/getSystemClipboard)
-                                                                                                                   (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
-                                                                                     (.setOnMouseEntered (event-handler [e] (.setCursor cell Cursor/HAND)))
-                                                                                     (.setOnMouseExited (event-handler [e] (.setCursor cell Cursor/DEFAULT))))))))))))]
-                            (reset! table-data-model obs-list)
-                            (doto table
-                              (.setItems obs-list))
-                            (-> table
-                                .getColumns
-                                (.addAll (into-array TableColumn table-columns))))))]
+                          (if-let [data-model @table-data-model]
+                            (doto data-model
+                              (.clear)
+                              (.addAll (into-array Object data)))
+                            (let [obs-list (FXCollections/observableArrayList data)
+                                  cols (->> data first keys)
+                                  table-columns (->> cols
+                                                     (map (fn [c]
+                                                            (doto (TableColumn. (str c)) 
+                                                              (.setCellValueFactory (reify Callback
+                                                                                      (call [this v]
+                                                                                        (ReadOnlyObjectWrapper. (get (.getValue v) c)))))
+                                                              (.setCellFactory (reify Callback
+                                                                                 (call [this v]                                                         
+                                                                                   (let [cell (CellUtils/makeTableCell)]
+                                                                                     (doto cell
+                                                                                       (.setOnMouseClicked (event-handler
+                                                                                                            [e]
+                                                                                                            (let [cell-text (-> e .getTarget .getText)]
+                                                                                                              (doto (Clipboard/getSystemClipboard)
+                                                                                                                (.setContent {DataFormat/PLAIN_TEXT cell-text})))))
+                                                                                       (.setOnMouseEntered (event-handler [e] (.setCursor cell Cursor/HAND)))
+                                                                                       (.setOnMouseExited (event-handler [e] (.setCursor cell Cursor/DEFAULT))))))))))))]
+                              (reset! table-data-model obs-list)
+                              (doto table
+                                (.setItems obs-list))
+                              (-> table
+                                  .getColumns
+                                  (.addAll (into-array TableColumn table-columns)))))
+                          (catch Exception e
+                            (.printStackTrace e))))]
     (-> table .getSelectionModel (.setCellSelectionEnabled true))
     {:result-node table
      :update-result update-result}))
@@ -116,7 +131,6 @@
                         (doto ta
                           (.setText (with-out-str
                                       (pprint/pprint v)))))]
-    #_(update-result ret-val)
     {:result-node ta
      :update-result update-result}))
 
@@ -175,16 +189,18 @@
       (.remove n)))
 
 (defn eval-on-repl [code]
-  (println "Evaluating " code)
+  (when debug-mode (println "Evaluating " code))
   (let [result (repl/message repl-client {:op :eval :code code})
         err (->> result
-             (filter :err)
-             first :err)]
+                 (filter :err)
+                 first :err)]
     (if err
       {:error err}
-      {:value (->> result
-               (filter :value)
-               first :value)})))
+      (let [value (->> result
+                       (filter :value)
+                       first :value)]
+        (when debug-mode (println "Evaluation returned " val))
+        {:value value}))))
 
 (defn make-executing-animation [node]
   (let [animation-min 1000
@@ -229,6 +245,7 @@
 
 
 (defn add-command-node [{:keys [title code x y w h result-type node-id key] :as node}]
+  (when debug-mode (println "Adding node " node))
   (let [input-params (params-names code)        
         eval-code (fn [params-values]
                     (binding [*default-data-reader-fn* str]
@@ -251,6 +268,7 @@
                     (try
                       (when-let [v (eval-code (get-params-values))]
                         (run-now (when update-result
+                                   (when debug-mode (println "Updating result with " v))
                                    (update-result v))))
                       (catch Exception e
                         (show-error "Error "  (with-out-str (.printStackTrace e)))
@@ -337,29 +355,40 @@
        (add-command-node n)))
    (println "No magic-sheet.edn found, starting a new sheet.")))
 
+(def cli-options [["-p" "--port PORT" "Nrepl port number"
+                   :parse-fn #(Integer/parseInt %)
+                   :validate [#(< 0 % 0x10000) "Must be a number between 0 and 65536"]]
+                  ["-g" "--host HOST" "Nrepl host"
+                   :default "localhost"]
+                  ["-d" "--debug" "Enable debugging mode"]
+                  ["-h" "--help"]])
+
 (defn -main
   ""
   [& args]
-  (let [[repl-host repl-port] (some-> args
-                                      first
-                                      (str/split #":"))]
+  (let [{:keys [options errors] :as result} (parse-opts args cli-options)]
+    (when errors
+      (doseq [e errors]
+        (println e))
+      (println (:summary result))
+      (System/exit 1))
 
-    (when (or (empty? repl-port)
-              (empty? repl-host))
-      (println "\nUsage: \n\t java -jar magic-sheet.jar localhost:7777\n")
+    (when (or (:help options)
+              (not (:port options))
+              (not (:host options)))
+      (println "Usage :  magic-sheet [options]")
+      (println "Options: ")
+      (println (:summary result))
       (System/exit 1))
     
-    ;; Make repl connection and client
-    (try
-      (alter-var-root #'repl-connection (constantly (repl/connect :host repl-host :port (Integer/parseInt repl-port))))
-      (alter-var-root #'repl-client (constantly (repl/client repl-connection repl-command-timeout)))
-      (catch java.net.ConnectException ce
-        (println (format "\nConnection refused. Are you sure there is a nrepl server running at %s:%s ?\n" repl-host repl-port))
-        (System/exit 1)))
+    (when-not (repl-connect! (:host options) (:port options))
+      (System/exit 1))
+
+    (alter-var-root #'debug-mode (constantly (:debug options)))
     
     ;; Initialize the JavaFX toolkit
     (javafx.embed.swing.JFXPanel.)
-
+    
     (alter-var-root #'menu
                     (constantly (make-context-menu [{:text "New command" :on-click #(let [v (.showAndWait (make-new-command-dialog))]
                                                                                       (when (.isPresent v)

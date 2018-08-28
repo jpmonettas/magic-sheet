@@ -1,6 +1,10 @@
 # magic-sheet
 
-Create magic sheets to improve your Clojure[Script] repl experience.
+Make all those repeating repl commands one keystroke away.
+
+## Why magic-sheet?
+
+## What can it do?
 
 ## Prerequisites 
 
@@ -13,8 +17,18 @@ Create magic sheets to improve your Clojure[Script] repl experience.
 lein uberjar
 ```
 
-## Usage
+## Basic usage
 
 ```bash
-java -jar target/uberjar/magic-sheet-0.1.0-standalone.jar localhost:40338
+java -jar target/uberjar/magic-sheet-0.1.0-standalone.jar --port 40338
 ```
+
+for more options try
+
+```bash
+java -jar target/uberjar/magic-sheet-0.1.0-standalone.jar --help
+
+```
+## How does it looks?
+
+<img src="/doc/sheet-sample.png?raw=true"/>

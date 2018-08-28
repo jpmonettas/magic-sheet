@@ -5,7 +5,8 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
                  [nrepl "0.4.4"]
-                 [org.clojure/core.async "0.4.474"]]
+                 [org.clojure/core.async "0.4.474"]
+                 [org.clojure/tools.cli "0.3.7"]]
   :source-paths      ["src"]
   :java-source-paths ["java-src"]
   :main ^:skip-aot magic-sheet.core
