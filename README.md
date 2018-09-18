@@ -8,9 +8,9 @@ Lots of times when developing or dev testing Clojure[Script] applications I find
 only with the purpose of checking or changing the state of the app. For example : querying some db tables, checking the state of the cache,
 checking blockchain time or account balances, restaring your components, incrementing time, clearing your cache, etc.
 
-If you are in the same situation, maybe magic-sheet can help you.
+If that workflow sounds familiar, magic-sheet can help you.
 
-It works by creating a sheet where you can arrange commands you are runnig constantly, so you have them one keystroke away.
+It lets you create a sheet in which you arrange your most used repl commands so you have them one keystroke away.
 
 Take a look at the screenshot at the end to see a example.
 
@@ -35,14 +35,14 @@ You can connect magic-sheet to any nrepl server like :
 java -jar target/uberjar/magic-sheet-0.1.0-standalone.jar --port 40338
 ```
 
-After first run, you will end up with a empty sheet. 
+The first time you run it you will just see a empty sheet. 
 
 for more options try  `--help`
 
 ### Define a new command
 
-For defining a new command, right click anywhere on the sheet and you should see a context menu. Click on new.
-This will open the create command dialog, which looks like:
+For defining a new command, right click anywhere on the sheet which should show a context menu. Click on `New Command`.
+This will open the new command dialog, which looks like:
 
 <img src="/doc/create-command.png?raw=true"/>
 
@@ -54,7 +54,9 @@ Then :
 - Choose a result type. 
 
 You can leave result type empty if you are only interested in the side effect, and not in the return value (like clear your cache or inc a counter inside an atom).
+
 Result as table can be used if you know your command result returns a collection of maps that can be visualized as a table.
+
 Result as value will show you the return value pretty printed, using the standard clojure.pprint/pprint.
 
 You can also parametrize commands using `${param-name}` placeholders like:
