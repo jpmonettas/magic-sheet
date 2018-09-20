@@ -16,17 +16,15 @@ Take a look at the screenshot at the end to see a example.
 
 ## Prerequisites 
 
-- Install JDK 8
-- If you install OpenJDK make sure you install openjfx
+- Install JDK 8 (if you install OpenJDK make sure you install openjfx)
+- Install clojure cli tool (https://clojure.org/guides/getting_started)
 
 ## Building 
 
 ```bash
 javac java-src/utils/*.java
 
-# (Optional) you can create a uberjar
-
-clj -Auberjar
+clj -Auberjar # (Optional) you can create a uberjar
 
 ```
 
