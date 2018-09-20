@@ -1,5 +1,8 @@
-{:deps {org.clojure/clojure {:mvn/version "1.9.0"}
-        nrepl {:mvn/version "0.4.4"}
+{:deps {org.clojure/clojure    {:mvn/version "1.9.0"}
+        nrepl                  {:mvn/version "0.4.4"}
         org.clojure/core.async {:mvn/version "0.4.474"}
-        org.clojure/tools.cli {:mvn/version "0.3.7"}}
- :paths ["src"]}
+        org.clojure/tools.cli  {:mvn/version "0.3.7"}}
+ :paths ["src" "java-src"]
+ :aliases {:uberjar {:extra-deps {pack/pack.alpha {:git/url "https://github.com/juxt/pack.alpha.git"
+                                                   :sha     "d16bb29fa1581519c2659aed3c94e9a22a0329b8"}}
+                     :main-opts ["-m" "mach.pack.alpha.capsule" "magic-sheet.jar" "-m" "magic-sheet.core"]}}}

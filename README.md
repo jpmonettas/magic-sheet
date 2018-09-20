@@ -22,7 +22,12 @@ Take a look at the screenshot at the end to see a example.
 ## Building 
 
 ```bash
-lein uberjar
+javac java-src/utils/*.java
+
+# (Optional) you can create a uberjar
+
+clj -Auberjar
+
 ```
 
 ## Basic usage
@@ -32,7 +37,11 @@ lein uberjar
 You can connect magic-sheet to any nrepl server like :
 
 ```bash
-java -jar target/uberjar/magic-sheet-0.1.0-standalone.jar --port 40338
+# if you created a uberjar 
+java -jar magic-sheet.jar --port 40338
+
+# if you want to run it directly with clj tool
+clj -m magic-sheet.core -port 40338
 ```
 
 The first time you run it you will just see a empty sheet. 
@@ -86,3 +95,7 @@ Everytime you run magic-sheet it searches for that file inside current folder an
 ## How does it looks?
 
 <img src="/doc/sheet-sample.png?raw=true"/>
+
+## Roadmap
+
+- Support other kinds of repls
