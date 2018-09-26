@@ -2,7 +2,7 @@
 
 Make all those Clojure[Script] repeating repl commands one keystroke away.
 
-Connect to any nrepl server (lein repl, fighwheel nrepl, etc), define some commands and run them with a keystroke.
+Connect to any nrepl server (lein repl, boot repl, fighwheel nrepl, etc), define some commands and run them with a keystroke.
 
 Lots of times when developing or dev testing Clojure[Script] applications I find myself at the repl firing a bunch of commands 
 only with the purpose of checking or changing the state of the app. For example : querying some db tables, checking the state of the cache,
@@ -89,6 +89,18 @@ Everytime you run magic-sheet it searches for that file inside current folder an
 ### Other features
 
 - Clicking on any table cell will automatically put the content in your clipboard.
+- Clicking on Edit button allows you to change your title, code or assigned key.
+
+### How to use it with ClojureScript and figwheel
+
+Figwheel can start a nrepl server if you tell it so. Check figwheels `:nrepl-port`
+
+```clojure 
+(figwheel-sidecar.repl-api/start-figwheel!
+   (-> (figwheel-sidecar.config/fetch-config)
+       (assoc-in [:data :figwheel-options :nrepl-port]  7778))
+    "dev-ui")
+```
 
 ## How does it looks?
 
@@ -96,4 +108,5 @@ Everytime you run magic-sheet it searches for that file inside current folder an
 
 ## Roadmap
 
+- Support multiple connections so you can use your client and server repls at the same time
 - Support other kinds of repls

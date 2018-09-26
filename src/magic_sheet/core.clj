@@ -24,7 +24,7 @@
            [utils CellUtils DragResizeMod DragResizeMod$OnDragResizeEventListener]
            javafx.scene.Cursor))
 
-#_(javafx.embed.swing.JFXPanel.)
+(javafx.embed.swing.JFXPanel.)
 
 (def main-pane nil)
 (def menu nil)
@@ -139,19 +139,24 @@
                                                                   (.setStyle styles/label)) tf])))]
    (VBox. 5 (into-array Node (map make-p-hbox inputs)))))
 
-(defn make-node-ui [{:keys [node-id title on-close result-type x y w h key input-params]
-                     :or {x 0 y 0 h 100 w 100}}]
-  (let [title-btn (doto (Button. (str (when key (str "[" key "] ")) title))
+(defn command-button-text [{:keys [title key]}]
+  (str (when key (str "[" key "] ")) title))
+
+(defn make-node-ui [{:keys [node-id title on-close on-edit result-type x y w h key input-params]
+                     :or {x 0 y 0 h 100 w 100}
+                     :as node}]
+  (let [title-btn (doto (Button. (command-button-text node))
                     (.setStyle styles/button))
         inputs (->> input-params
                     (map (fn [p] [p (TextField.)]))
                     (into {}))
         get-params-values (fn [] (map (fn [[p tf]] [p (.getText tf)]) inputs))
-        close-btn (doto (Button. "X")
-                    (.setStyle styles/button))
+        close-btn (doto (Button. "X") (.setStyle styles/button))
+        edit-btn (doto (Button. "Edit") (.setStyle styles/button))
+        buttons-pane (HBox. 5 (into-array Node [edit-btn close-btn]))
         bar (doto (BorderPane.)
               (.setLeft title-btn)
-              (.setRight close-btn))
+              (.setRight buttons-pane))
         {:keys [update-result result-node]} (case result-type
                                               :as-table (make-table-result-node)
                                               :as-value (make-text-result-node)
@@ -167,6 +172,8 @@
 
     (doto close-btn
       (.setOnAction (event-handler [_] (on-close main-box))))
+    (doto edit-btn
+      (.setOnAction (event-handler [_] (on-edit node-id title-btn))))
 
     (DragResizeMod/makeResizable main-box (reify DragResizeMod$OnDragResizeEventListener
                                             (onDrag [this node x y h w]
@@ -244,12 +251,77 @@
      (.showAndWait alert))))
 
 
+(defn make-new-command-dialog [{:keys [:node-id :title :code :key :result-type ]}]
+  (let [node-id (or node-id (str (UUID/randomUUID)))
+        d (doto (Dialog.)
+            (.setTitle "New command")
+            (.initModality Modality/APPLICATION_MODAL)
+            (.setResizable false)
+            (.setWidth 620)
+            (.setHeight 285))
+        
+        title-input (doto (TextField. title) (.setStyle styles/inputs))
+        key-input (doto (TextField. key) (.setStyle styles/inputs))
+        code-txta (TextArea. code) 
+        type-combo (doto (ComboBox.) (.setStyle styles/inputs))
+        make-label (fn [text] (doto (Label. text)
+                                (.setStyle styles/label)))
+        grid-pane (doto (GridPane.)
+                    (.setHgap 10)
+                    (.setVgap 10)
+                    (.add (make-label "Title:")      0 0)
+                    (.add title-input                1 0)
+                    (.add (make-label "Code:")       0 1)
+                    (.add code-txta                  1 1)
+                    (.add (make-label "Key:")        0 2)
+                    (.add key-input                  1 2)
+                    (.add (make-label "Result as:")  0 3)
+                    (.add type-combo                 1 3)
+                    (.setStyle styles/backpane))
+        result-type-options {"Result as table" :as-table
+                             "Result as value" :as-value}
+        result-type-options-inverse (into {} (map (fn [[k v]] [v k]) result-type-options)) ]
+
+    (-> type-combo
+        .getItems
+        (.addAll (into-array String (keys result-type-options))))
+
+    (when result-type
+      (.setDisable type-combo true))
+    
+    ;; TODO make result type updatable
+    #_(-> type-combo
+        .getSelectionModel
+        (.select (get result-type-options-inverse result-type)))
+    
+    (-> d
+        .getDialogPane
+        .getButtonTypes
+        (.addAll (into-array Object [ButtonType/OK ButtonType/CANCEL])))
+    (doto (.getDialogPane d)
+      (.setContent grid-pane)
+      (.setStyle styles/backpane))
+
+    (.setResultConverter d (reify Callback
+                             (call [this button]
+                               (when (= "OK" (.getText button))
+                                 (cond-> {:node-id node-id
+                                          :title   (.getText title-input) 
+                                          :code    (.getText code-txta)
+                                          :key     (some-> (.getText key-input)
+                                                           first
+                                                           str/upper-case)
+                                          :result-type (result-type-options (.getValue type-combo))})))))
+    d))
+
 (defn add-command-node [{:keys [title code x y w h result-type node-id key] :as node}]
   (when debug-mode (println "Adding node " node))
   (let [input-params (params-names code)        
         eval-code (fn [params-values]
                     (binding [*default-data-reader-fn* str]
-                      (let [{:keys [error value]} (-> (render-code code params-values)
+                      (let [{:keys [error value]} (-> (get @nodes node-id)
+                                                      :code
+                                                      (render-code params-values)
                                                       eval-on-repl)]
                         (if error
                           (show-error "Error " error)
@@ -258,6 +330,11 @@
                                             {:on-close (fn [n]
                                                          (remove-node-from-store! node-id)
                                                          (remove-node n))
+                                             :on-edit (fn [node-id title-btn]
+                                                        (let [v (.showAndWait (make-new-command-dialog (get @nodes node-id)))]
+                                                          (when (.isPresent v)
+                                                            (.setText title-btn (command-button-text (.get v)))
+                                                            (update-node-in-store! (.get v)))))
                                              :input-params input-params}))
         {:keys [node exec-button update-result get-params-values x y w h]} node-ui-result
         
@@ -292,59 +369,6 @@
                   :h h
                   :key key
                   :exec-fn exec-fn})))
-
-(defn make-new-command-dialog []
-  (let [node-id (str (UUID/randomUUID))
-        d (doto (Dialog.)
-            (.setTitle "New command")
-            (.initModality Modality/APPLICATION_MODAL)
-            (.setResizable false)
-            (.setWidth 620)
-            (.setHeight 285))
-        
-        title-input (doto (TextField.) (.setStyle styles/inputs))
-        key-input (doto (TextField.) (.setStyle styles/inputs))
-        code-txta (TextArea.) 
-        type-combo (doto (ComboBox.) (.setStyle styles/inputs))
-        make-label (fn [text] (doto (Label. text)
-                                (.setStyle styles/label)))
-        grid-pane (doto (GridPane.)
-                    (.setHgap 10)
-                    (.setVgap 10)
-                    (.add (make-label "Title:")      0 0)
-                    (.add title-input                1 0)
-                    (.add (make-label "Code:")       0 1)
-                    (.add code-txta                  1 1)
-                    (.add (make-label "Key:")        0 2)
-                    (.add key-input                  1 2)
-                    (.add (make-label "Result as:")  0 3)
-                    (.add type-combo                 1 3)
-                    (.setStyle styles/backpane))
-        result-type-options {"Result as table" :as-table
-                             "Result as value" :as-value}]
-
-    (-> type-combo
-        .getItems
-        (.addAll (into-array String (keys result-type-options))))
-    (-> d
-        .getDialogPane
-        .getButtonTypes
-        (.addAll (into-array Object [ButtonType/OK ButtonType/CANCEL])))
-    (doto (.getDialogPane d)
-      (.setContent grid-pane)
-      (.setStyle styles/backpane))
-
-    (.setResultConverter d (reify Callback
-                             (call [this button]
-                               (when (= "OK" (.getText button))
-                                 (cond-> {:node-id node-id
-                                          :title   (.getText title-input) 
-                                          :code    (.getText code-txta)
-                                          :key     (some-> (.getText key-input)
-                                                           first
-                                                           str/upper-case)
-                                          :result-type (result-type-options (.getValue type-combo))})))))
-    d))
 
 (defn load-nodes-from-file [file]
   (if (.exists (File. file))
@@ -390,7 +414,7 @@
     (javafx.embed.swing.JFXPanel.)
     
     (alter-var-root #'menu
-                    (constantly (make-context-menu [{:text "New command" :on-click #(let [v (.showAndWait (make-new-command-dialog))]
+                    (constantly (make-context-menu [{:text "New command" :on-click #(let [v (.showAndWait (make-new-command-dialog nil))]
                                                                                       (when (.isPresent v)
                                                                                         (add-command-node (.get v))))}
                                                     {:text "Save sheet" :on-click #(do
